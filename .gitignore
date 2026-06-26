@@ -1,0 +1,9 @@
+node_modules/
+.env
+zalo-creds.json
+qr.png
+*.log
+tmp/
+media/
+output/
+data/

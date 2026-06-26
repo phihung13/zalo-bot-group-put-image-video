@@ -1,0 +1,45 @@
+{
+  "_help": "Map threadId (nhóm Zalo) -> fanpage. Thêm nhóm = thêm 1 phần tử, KHÔNG sửa code. Token đọc từ biến môi trường theo tên ở fanpageTokenEnv.",
+  "defaults": {
+    "debounceMs": 600000,
+    "maxWaitMs": 1800000,
+    "published": false
+  },
+  "routes": [
+    {
+      "threadId": "204024737146120985",
+      "label": "Nhóm 'Hình ảnh đẹp...Việt Anh' -> Page Mầm Non Việt Anh (NHÁP)",
+      "fanpageId": "106075121755248",
+      "fanpageTokenEnv": "FB_PAGE_TOKEN_VIETANH",
+      "allowSenders": [],
+      "published": false,
+      "debounceMs": 180000,
+      "maxWaitMs": 600000,
+      "comment": "",
+      "captionFooter": "______________________\nTrường Việt Anh - Đào Tạo Học Sinh Giỏi Chuyên Anh\n📞 Hotline: 0774 588 988 ( Ms Yến)\n📍 Cơ sở Việt Anh Phú Nhuận: 269A Nguyễn Trọng Tuyển, phường Phú Nhuận, Tp.HCM.\n📍 Cơ sở Việt Anh Gò Vấp: 160/72 Phan Huy Ích, phường An Hội Tây, Tp.HCM.\n📍 Cơ sở Việt Anh Bình Tân: 951/7 Tỉnh lộ 10, phường Bình Tân, Tp.HCM.\n📍 Cơ sở Mầm Non Việt Anh - Lê Đức Thọ: 573 Lê Đức Thọ, phường An Hội Đông TP.HCM.\n📍 CS Mầm Non Nhân Lễ: 22 Đường D2, KDC Long Hậu, ấp Long Hậu 3, xã Cần Giuộc, Tỉnh Tây Ninh ( tỉnh Long An cũ ).\n📍CS Mầm Non & Tiểu học Thái Sơn: Khu dân cư T&T Cần Giuộc, Tây Ninh (Long An cũ)\n📍 CS Rạch Giá (An Giang): Trường Mầm Non & Tiểu Học Quốc Tế Mekong Xanh – Lô E7, Đường số 13, KĐT Tây Bắc, P. Rạch Giá, T. An Giang"
+    },
+    {
+      "threadId": "6323252024969718285",
+      "label": "Nhóm 'Mầm non Nhân Lễ' -> Page Trường Mầm non Nhân Lễ (NHÁP)",
+      "fanpageId": "622094254311433",
+      "fanpageTokenEnv": "FB_PAGE_TOKEN_NHANLE",
+      "allowSenders": [],
+      "published": false,
+      "debounceMs": 180000,
+      "maxWaitMs": 600000,
+      "captionFooter": "----------------\n📍 Trường Mầm non Nhân Lễ\nĐịa chỉ: 22 D2, KCN Long Hậu, Cần Giuộc\n☎️ Hotline/Zalo: 0902 095 956 - Mr Khải\n📌 Google Maps: https://maps.app.goo.gl/SF4jfsbwCG28TWWQA\n#MamNonNhanLe #ToanMamNon #SoSanhRongHep #HocMaChoi #BeVuiHocToan #MamNonHanhPhuc"
+    },
+    {
+      "threadId": "3116985445483190156",
+      "label": "Nhóm Thái Sơn → Page Mầm non & Tiểu học Thái Sơn",
+      "fanpageId": "967454396460076",
+      "fanpageTokenEnv": "FB_PAGE_TOKEN_TEST",
+      "published": false,
+      "enabled": true,
+      "comment": "",
+      "debounceMs": 360000,
+      "maxWaitMs": 1800000,
+      "captionFooter": "---------------------------------------------------\n📩 THÔNG TIN LIÊN HỆ & TƯ VẤN\nCơ sở Mầm Non & Tiểu học Thái Sơn\n📍Địa chỉ: Đường số 11, Khu dân cư Thái Sơn, Cần Giuộc, Tây Ninh (Long An cũ).\n📞 Hotline tư vấn: 0902 095 956 – Mr. Khải\n→ Inbox ngay cho Fanpage để nhận tư vấn chi tiết về lộ trình học tập của bé!\n#TruongThaiSon #MamNonThaiSon #TieuHocThaiSon #TiengAnhChoBe"
+    }
+  ]
+}

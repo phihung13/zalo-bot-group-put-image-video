@@ -1,0 +1,443 @@
+// src/web.mjs — Web dashboard: đăng nhập, duyệt & đăng bài, comment, route, token, log.
+import express from "express";
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import * as store from "./store.mjs";
+import { publishDraft } from "./publish.mjs";
+import { publishPost, editPost, deletePost, postIdFromLink } from "./facebook.mjs";
+import { exchangeLongLivedUser, listUserPages, debugToken, setEnvVar, derivePageToken } from "./fbtoken.mjs";
+import { loadPages, savePages, envNameFor } from "./pages.mjs";
+import { loadConfig, routeForThread } from "./config.mjs";
+import { dataPath, CRED_FILE, QR_FILE } from "./paths.mjs";
+
+const ROUTES_FILE = process.env.ROUTES_FILE || "config/routes.json";
+const PAGE_FILE = path.resolve("public/index.html");
+
+/**
+ * @param {object} ctx { status: {zaloConnected}, reloadConfig: ()=>void }
+ */
+export function startWeb(ctx = {}) {
+  const app = express();
+  app.use(express.json({ limit: "2mb" }));
+
+  const USER = process.env.DASHBOARD_USER || "admin";
+  const PASS = process.env.DASHBOARD_PASS || "admin";
+  // Phiên đăng nhập dashboard — lưu xuống file để KHÔNG bị đăng xuất khi service tự khởi động lại (đổi tài khoản Zalo).
+  const SESS_FILE = dataPath("data/sessions.json");
+  const sessions = new Set((() => { try { return JSON.parse(fs.readFileSync(SESS_FILE, "utf8")); } catch { return []; } })());
+  const saveSessions = () => { try { fs.mkdirSync(path.dirname(SESS_FILE), { recursive: true }); fs.writeFileSync(SESS_FILE, JSON.stringify([...sessions])); } catch {} };
+
+  const parseCookies = (req) => Object.fromEntries((req.headers.cookie || "").split(";").map((c) => c.trim().split("=").map(decodeURIComponent)).filter((x) => x[0]));
+  const authed = (req) => sessions.has(parseCookies(req).sid);
+  const requireAuth = (req, res, next) => (authed(req) ? next() : res.status(401).json({ error: "Chưa đăng nhập" }));
+
+  // ===== Auth =====
+  app.post("/api/login", (req, res) => {
+    const { user, pass } = req.body || {};
+    if (user === USER && pass === PASS) {
+      const sid = crypto.randomBytes(24).toString("hex");
+      sessions.add(sid); saveSessions();
+      res.setHeader("Set-Cookie", `sid=${sid}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800`);
+      return res.json({ ok: true });
+    }
+    res.status(401).json({ error: "Sai tài khoản hoặc mật khẩu" });
+  });
+  app.post("/api/logout", (req, res) => { sessions.delete(parseCookies(req).sid); saveSessions(); res.json({ ok: true }); });
+  app.get("/api/me", (req, res) => (authed(req) ? res.json({ ok: true, user: USER }) : res.status(401).json({ error: "no" })));
+
+  // Ảnh draft (bảo vệ bằng auth)
+  app.use("/output", requireAuth, express.static(dataPath("output")));
+
+  // ===== Trạng thái =====
+  app.get("/api/status", requireAuth, (req, res) => {
+    const cfg = loadConfig();
+    res.json({
+      zaloConnected: !!(ctx.status && ctx.status.zaloConnected),
+      zaloRelogging: !!(ctx.status && ctx.status.relogging),
+      settings: store.getSettings(),
+      pendingCount: store.listPending().length,
+      routes: [...cfg.byThread.values()].map((r) => ({
+        threadId: r.threadId, label: r.label, fanpageId: r.fanpageId, fanpageTokenEnv: r.fanpageTokenEnv,
+        hasToken: !!r.fanpageToken, published: r.published, enabled: r.enabled, comment: r.comment,
+      })),
+    });
+  });
+
+  // ===== Hàng chờ duyệt =====
+  app.get("/api/pending", requireAuth, (req, res) => res.json(store.listPending()));
+
+  app.post("/api/pending/:id/save", requireAuth, (req, res) => {
+    const { caption, imageCaptions, removedIndexes } = req.body || {};
+    const cur = store.getPending(req.params.id);
+    if (!cur) return res.status(404).json({ error: "không thấy draft" });
+    const patch = {};
+    if (caption != null) patch.caption = caption;
+    if (imageCaptions) patch.imageCaptions = imageCaptions;
+    // Bỏ một số ảnh lẻ trước khi đăng (admin loại ảnh xấu/nhạy cảm)
+    if (Array.isArray(removedIndexes) && removedIndexes.length && Array.isArray(cur.savedImages)) {
+      const drop = new Set(removedIndexes.map(Number));
+      const keep = (arr) => (Array.isArray(arr) ? arr.filter((_, i) => !drop.has(i)) : arr);
+      const keptImgs = keep(cur.savedImages);
+      if (keptImgs.length || (cur.savedVideos && cur.savedVideos.length)) {
+        patch.savedImages = keptImgs;
+        patch.imageUrls = keep(cur.imageUrls);
+        patch.imageCaptions = keep(patch.imageCaptions || cur.imageCaptions);
+        for (const i of drop) { const p = cur.savedImages[i]; if (p) try { fs.rmSync(p, { force: true }); } catch {} }
+        store.pushLog(`Bỏ ${drop.size} ảnh khỏi bài: ${cur.routeLabel || cur.id}`);
+      }
+    }
+    const d = store.updatePending(req.params.id, patch);
+    res.json(d);
+  });
+
+  app.post("/api/pending/:id/approve", requireAuth, async (req, res) => {
+    const d = store.getPending(req.params.id);
+    if (!d) return res.status(404).json({ error: "không thấy draft" });
+    const published = req.body?.published !== false;
+    const cfg = loadConfig();
+    const route = routeForThread(cfg, d.threadId) || { fanpageId: d.fanpageId, fanpageToken: process.env[d.fanpageTokenEnv], comment: "" };
+    if (!route.fanpageToken) return res.status(400).json({ error: "Page chưa có token (vào tab Token để cấp)" });
+    try {
+      const r = await publishDraft(d, route, { published, comment: route.comment, log: store.pushLog });
+      store.removePending(d.id);
+      store.addPosted({ ...d, postedAt: Date.now(), published, links: r.links });
+      store.pushLog(`ĐÃ ĐĂNG ${published ? "công khai" : "nháp"}: ${d.routeLabel} → ${r.links.join(" ")}`);
+      res.json({ ok: true, links: r.links });
+    } catch (e) { store.pushLog("Đăng lỗi: " + e.message); res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/pending/:id/reject", requireAuth, (req, res) => {
+    const d = store.getPending(req.params.id);
+    if (d) { try { fs.rmSync(d.dir, { recursive: true, force: true }); } catch {} store.removePending(d.id); store.pushLog("Đã bỏ draft: " + (d.routeLabel || d.id)); }
+    res.json({ ok: true });
+  });
+
+  // ===== Lịch sử =====
+  app.get("/api/posted", requireAuth, (req, res) => res.json(store.listPosted().slice(0, 100)));
+
+  // Token cho 1 bài đã đăng (theo biến .env hoặc theo fanpageId trong pages store)
+  const tokenForPosted = (item) => {
+    if (item.fanpageTokenEnv && process.env[item.fanpageTokenEnv]) return process.env[item.fanpageTokenEnv];
+    const meta = loadPages()[item.fanpageId];
+    if (meta && meta.envName && process.env[meta.envName]) return process.env[meta.envName];
+    return null;
+  };
+  const postIdsOf = (item) => (item.links || []).map(postIdFromLink).filter(Boolean);
+
+  // Đăng THẬT (công khai) một bài đang nháp
+  app.post("/api/posted/:id/publish", requireAuth, async (req, res) => {
+    const item = store.getPosted(req.params.id);
+    if (!item) return res.status(404).json({ error: "không thấy bài" });
+    const token = tokenForPosted(item);
+    if (!token) return res.status(400).json({ error: "Trang chưa có token (vào tab Token cấp lại)" });
+    try {
+      const ids = postIdsOf(item);
+      if (!ids.length) return res.status(400).json({ error: "bài không có link để đăng" });
+      for (const pid of ids) await publishPost({ postId: pid, token });
+      store.updatePosted(item.id, { published: true });
+      store.pushLog(`Đăng CÔNG KHAI (từ nháp): ${item.routeLabel}`);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Sửa nội dung bài đã đăng (cập nhật lên Facebook)
+  app.post("/api/posted/:id/edit", requireAuth, async (req, res) => {
+    const item = store.getPosted(req.params.id);
+    if (!item) return res.status(404).json({ error: "không thấy bài" });
+    const token = tokenForPosted(item);
+    if (!token) return res.status(400).json({ error: "Trang chưa có token" });
+    const message = (req.body && req.body.caption) || "";
+    try {
+      const pid = postIdsOf(item)[0];
+      if (!pid) return res.status(400).json({ error: "bài không có link" });
+      await editPost({ postId: pid, token, message });
+      store.updatePosted(item.id, { caption: message });
+      store.pushLog(`Sửa bài đã đăng: ${item.routeLabel}`);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Xoá bài đã đăng (khỏi Facebook + danh sách)
+  app.post("/api/posted/:id/delete", requireAuth, async (req, res) => {
+    const item = store.getPosted(req.params.id);
+    if (!item) return res.status(404).json({ error: "không thấy bài" });
+    const token = tokenForPosted(item);
+    try {
+      if (token) for (const pid of postIdsOf(item)) { try { await deletePost({ postId: pid, token }); } catch (e) { store.pushLog(`Xoá FB lỗi (${pid}): ${e.message}`); } }
+      store.removePosted(item.id);
+      store.pushLog(`Đã xoá bài: ${item.routeLabel}`);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ===== Cấu hình route =====
+  app.get("/api/routes", requireAuth, (req, res) => res.json(JSON.parse(fs.readFileSync(ROUTES_FILE, "utf8"))));
+  app.post("/api/routes", requireAuth, (req, res) => {
+    try {
+      const data = req.body;
+      if (!data || !Array.isArray(data.routes)) return res.status(400).json({ error: "định dạng sai" });
+      fs.writeFileSync(ROUTES_FILE, JSON.stringify(data, null, 2));
+      ctx.reloadConfig && ctx.reloadConfig();
+      store.pushLog("Đã cập nhật routes.json");
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ===== Danh sách nhóm Zalo (cho bộ chọn ở tab Nhóm → Page) =====
+  const GROUPS_FILE = dataPath("data/groups.json");
+  let _groupsCache = null, _groupsAt = 0, _groupsRefreshing = false, _groupsPromise = null;
+  try { const j = JSON.parse(fs.readFileSync(GROUPS_FILE, "utf8")); _groupsCache = j.groups; _groupsAt = j.at || 0; } catch {}
+  async function refreshGroups(zalo) {
+    const all = await zalo.getAllGroups();
+    const ids = Object.keys(all.gridVerMap || {});
+    const groups = [];
+    const CONC = 10; // lấy tên song song theo lô để nhanh, không spam Zalo
+    for (let i = 0; i < ids.length; i += CONC) {
+      const infos = await Promise.all(ids.slice(i, i + CONC).map(async (id) => {
+        try { const info = await zalo.getGroupInfo(id); const g = (info.gridInfoMap && info.gridInfoMap[id]) || {}; return { threadId: id, name: g.name || g.groupName || "(không tên)" }; }
+        catch { return { threadId: id, name: "(không đọc được tên)" }; }
+      }));
+      groups.push(...infos);
+    }
+    groups.sort((a, b) => a.name.localeCompare(b.name, "vi"));
+    _groupsCache = groups; _groupsAt = Date.now();
+    try { fs.mkdirSync(path.dirname(GROUPS_FILE), { recursive: true }); fs.writeFileSync(GROUPS_FILE, JSON.stringify({ at: _groupsAt, groups })); } catch {}
+    return groups;
+  }
+  app.get("/api/zalo/groups", requireAuth, async (req, res) => {
+    const zalo = ctx.getZalo && ctx.getZalo();
+    const fresh = _groupsCache && Date.now() - _groupsAt < 300000; // 5 phút
+    if (_groupsCache) {
+      res.json(_groupsCache); // trả NGAY (kể cả hơi cũ)
+      if (!fresh && zalo && !_groupsRefreshing) { _groupsRefreshing = true; refreshGroups(zalo).catch(() => {}).finally(() => { _groupsRefreshing = false; }); }
+      return;
+    }
+    if (!zalo) return res.status(503).json({ error: "Zalo chưa kết nối — không lấy được danh sách nhóm" });
+    try {
+      if (!_groupsPromise) _groupsPromise = refreshGroups(zalo).finally(() => { _groupsPromise = null; });
+      res.json(await _groupsPromise);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ===== Tài khoản Zalo (đăng nhập/đăng xuất/QR/đổi tài khoản) =====
+  app.get("/api/zalo/status", requireAuth, (req, res) => {
+    res.json({
+      connected: !!(ctx.status && ctx.status.zaloConnected),
+      relogging: !!(ctx.status && ctx.status.relogging),
+      ownId: (ctx.status && ctx.status.ownId) || null,
+      hasCreds: fs.existsSync(CRED_FILE),
+      qr: fs.existsSync(QR_FILE),
+    });
+  });
+  app.get("/api/zalo/qr", requireAuth, (req, res) => {
+    const p = QR_FILE;
+    if (!fs.existsSync(p)) return res.status(404).end();
+    res.setHeader("Cache-Control", "no-store");
+    res.sendFile(p);
+  });
+  // Xoá phiên Zalo hiện tại -> service tự khởi động lại (start.bat) -> hiện QR mới để quét tài khoản khác.
+  app.post("/api/zalo/logout", requireAuth, (req, res) => {
+    const wipe = !!(req.body && req.body.wipe);
+    try { fs.rmSync(GROUPS_FILE, { force: true }); } catch {}
+    _groupsCache = null; _groupsAt = 0;
+    if (wipe) {
+      // Xoá dữ liệu GẮN với tài khoản Zalo cũ: cấu hình Nhóm→Page + bài chờ duyệt. GIỮ token Facebook.
+      try { for (const d of store.clearPending()) { try { if (d.dir) fs.rmSync(d.dir, { recursive: true, force: true }); } catch {} } } catch {}
+      try { const cur = JSON.parse(fs.readFileSync(ROUTES_FILE, "utf8")); fs.writeFileSync(ROUTES_FILE, JSON.stringify({ ...cur, routes: [] }, null, 2)); } catch {}
+      ctx.reloadConfig && ctx.reloadConfig();
+      store.pushLog("Đã xoá cấu hình Nhóm→Page và bài chờ của tài khoản cũ (giữ token Facebook).");
+    }
+    if (ctx.relogin) { // Đổi phiên NGAY trong tiến trình — KHÔNG khởi động lại
+      ctx.relogin().catch(() => {});
+      store.pushLog("Đăng xuất Zalo — chờ quét QR (không khởi động lại).");
+      return res.json({ ok: true, relogin: true, wiped: wipe });
+    }
+    // Fallback (service đời cũ): xoá phiên + để start.bat khởi động lại
+    try { fs.rmSync(CRED_FILE, { force: true }); } catch {}
+    try { fs.rmSync(QR_FILE, { force: true }); } catch {}
+    store.pushLog("Đăng xuất Zalo — khởi động lại để quét QR tài khoản mới.");
+    res.json({ ok: true, restarting: true });
+    setTimeout(() => process.exit(0), 700);
+  });
+
+  // ===== Lắng nghe (live) — trạng thái nhận tin & xử lý theo nhóm =====
+  app.get("/api/live", requireAuth, (req, res) => {
+    const liveArr = ctx.getLive ? ctx.getLive() : [];
+    const byThread = {};
+    for (const s of liveArr) byThread[s.threadId] = s;
+    const cfg = loadConfig();
+    const threads = [];
+    for (const r of cfg.byThread.values()) {
+      if (r.enabled === false) continue;
+      const s = byThread[String(r.threadId)];
+      // Luôn lấy thời gian theo CẤU HÌNH hiện tại (loadConfig đọc routes.json mới), không dùng giá trị đã chụp lúc bắt đầu phiên
+      if (s) { threads.push({ ...s, label: r.label, debounceMs: r.debounceMs, maxWaitMs: r.maxWaitMs }); }
+      else threads.push({ threadId: String(r.threadId), label: r.label, phase: "idle", counts: { image: 0, video: 0, text: 0 }, events: [], startedAt: 0, lastEventAt: 0, debounceMs: r.debounceMs, maxWaitMs: r.maxWaitMs, proc: null, doneAt: 0 });
+    }
+    res.json({ connected: !!(ctx.status && ctx.status.zaloConnected), serverNow: Date.now(), threads });
+  });
+
+  // Chốt phiên gom NGAY (thay vì chờ hết im lặng) -> xử lý & đưa vào Chờ duyệt
+  app.post("/api/live/close", requireAuth, (req, res) => {
+    const threadId = req.body && req.body.threadId;
+    if (!threadId) return res.status(400).json({ error: "thiếu threadId" });
+    if (!ctx.closeNow) return res.status(400).json({ error: "không hỗ trợ chốt phiên" });
+    Promise.resolve(ctx.closeNow(String(threadId))).catch(() => {}); // chạy nền; màn Lắng nghe tự cập nhật
+    store.pushLog("Chốt phiên thủ công cho nhóm " + threadId);
+    res.json({ ok: true });
+  });
+
+  // ===== Settings =====
+  app.post("/api/settings", requireAuth, (req, res) => {
+    const s = store.setSettings(req.body || {});
+    store.pushLog(`Cài đặt: duyệt=${s.approval} tạm dừng=${s.paused}`);
+    res.json(s);
+  });
+
+  // ===== Token & danh sách Trang =====
+  const FBV = process.env.FB_GRAPH_VERSION || "v21.0";
+  const G = `https://graph.facebook.com/${FBV}`;
+  let _pagesCache = null, _pagesAt = 0;
+  // Gộp MỌI Trang hệ thống đang giữ token: từ data/pages.json + routes + mọi biến FB_PAGE_TOKEN_* trong .env.
+  async function buildPagesList(force) {
+    if (!force && _pagesCache && Date.now() - _pagesAt < 300000) return _pagesCache;
+    const pstore = loadPages();
+    // NHANH: nếu store (data/pages.json) đã phủ hết token FB_PAGE_TOKEN_* trong .env -> dựng từ store, KHÔNG gọi Graph (hiện tức thì)
+    const envKeys = Object.keys(process.env).filter((k) => /^FB_PAGE_TOKEN_/.test(k) && process.env[k]);
+    const storeEnvs = new Set(Object.values(pstore).map((m) => m.envName));
+    if (!force && Object.keys(pstore).length && envKeys.length && envKeys.every((k) => storeEnvs.has(k))) {
+      const list = Object.entries(pstore)
+        .map(([fid, m]) => ({ fanpageId: fid, name: m.name || ("Trang " + fid), envName: m.envName, hasToken: !!(m.envName && process.env[m.envName]), expiresAt: m.expiresAt }))
+        .sort((a, b) => a.name.localeCompare(b.name, "vi"));
+      _pagesCache = list; _pagesAt = Date.now();
+      return list;
+    }
+    const appId = process.env.FB_APP_ID, secret = process.env.FB_APP_SECRET;
+    const cfg = loadConfig();
+    const map = {};
+    for (const [fid, meta] of Object.entries(pstore))
+      map[fid] = { fanpageId: fid, name: meta.name || null, envName: meta.envName, hasToken: !!(meta.envName && process.env[meta.envName]), expiresAt: meta.expiresAt };
+    for (const r of cfg.byThread.values()) {
+      if (!r.fanpageId || map[r.fanpageId]) continue;
+      map[r.fanpageId] = { fanpageId: r.fanpageId, name: null, envName: r.fanpageTokenEnv, hasToken: !!r.fanpageToken };
+    }
+    // Quét mọi token Trang trong .env -> hỏi Graph /me để biết page id + tên (hiện đủ Trang dù chưa cấu hình route)
+    for (const [k, v] of Object.entries(process.env)) {
+      if (!/^FB_PAGE_TOKEN_/.test(k) || !v) continue;
+      try {
+        const me = await (await fetch(`${G}/me?fields=id,name&access_token=${encodeURIComponent(v)}`)).json();
+        if (me.id) {
+          const cur = map[me.id] || { fanpageId: String(me.id) };
+          cur.fanpageId = String(me.id); cur.name = me.name || cur.name; cur.envName = cur.envName || k; cur.hasToken = true;
+          map[me.id] = cur;
+        }
+      } catch {}
+    }
+    // Bổ sung tên + hạn token nếu còn thiếu
+    for (const p of Object.values(map)) {
+      const tok = p.envName && process.env[p.envName];
+      if (tok) {
+        if (!p.name) { try { const g = await (await fetch(`${G}/${p.fanpageId}?fields=name&access_token=${encodeURIComponent(tok)}`)).json(); if (g.name) p.name = g.name; } catch {} }
+        if (p.expiresAt === undefined && appId && secret) { try { p.expiresAt = (await debugToken(tok, appId, secret)).expires_at ?? null; } catch {} }
+      }
+      if (!p.name) p.name = "Trang " + p.fanpageId;
+    }
+    // Lưu lại store (tên + hạn) để lần sau nhanh, và làm nguồn dropdown ổn định
+    const newStore = {};
+    for (const p of Object.values(map)) if (p.envName) newStore[p.fanpageId] = { name: p.name, envName: p.envName, expiresAt: p.expiresAt };
+    savePages(newStore);
+    _pagesCache = Object.values(map).sort((a, b) => a.name.localeCompare(b.name, "vi"));
+    _pagesAt = Date.now();
+    return _pagesCache;
+  }
+
+  app.get("/api/fb/pages", requireAuth, async (req, res) => {
+    try { res.json(await buildPagesList()); } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/token", requireAuth, async (req, res) => {
+    let pages = [];
+    try { pages = (await buildPagesList()).map((p) => ({ page: p.name, fanpageId: p.fanpageId, env: p.envName, hasToken: p.hasToken, expiresAt: p.expiresAt })); } catch {}
+    res.json({ appId: process.env.FB_APP_ID || "", hasSecret: !!process.env.FB_APP_SECRET, pages });
+  });
+
+  // Dán 1 user token -> phát hiện MỌI Trang user quản lý, cấp token vĩnh viễn, lưu vào .env + data/pages.json.
+  app.post("/api/token/refresh", requireAuth, async (req, res) => {
+    const { userToken } = req.body || {};
+    const appId = process.env.FB_APP_ID, secret = process.env.FB_APP_SECRET;
+    if (!userToken) return res.status(400).json({ error: "thiếu userToken" });
+    if (!appId || !secret) return res.status(400).json({ error: "thiếu FB_APP_ID/FB_APP_SECRET trong .env" });
+    try {
+      // Đổi sang long-lived nếu được; nếu lỗi (vd đã là page token) thì dùng token gốc.
+      let longUser = userToken;
+      try { longUser = await exchangeLongLivedUser(userToken, appId, secret); } catch {}
+      // Soi token để chẩn đoán: loại (USER/PAGE), quyền, app, còn hạn? (giữ NGUYÊN lỗi Facebook để hiện ra)
+      let dbg = {}, dbgErr = null;
+      try {
+        const dj = await (await fetch(`${G}/debug_token?input_token=${encodeURIComponent(longUser)}&access_token=${encodeURIComponent(appId)}|${encodeURIComponent(secret)}`)).json();
+        if (dj.error) dbgErr = dj.error.message; else dbg = dj.data || {};
+      } catch (e) { dbgErr = e.message; }
+      let pages = [], accountsErr = null;
+      try { pages = await listUserPages(longUser); } catch (e) { accountsErr = e.message; }
+      // Bổ sung cho trường hợp Business Manager (/me/accounts rỗng): lấy token TRỰC TIẾP theo ID Trang đã biết.
+      const have = new Set(pages.map((p) => String(p.id)));
+      const knownIds = new Set([
+        ...Object.keys(loadPages()),
+        ...[...loadConfig().byThread.values()].map((r) => r.fanpageId).filter(Boolean).map(String),
+      ]);
+      for (const pid of knownIds) {
+        if (have.has(String(pid))) continue;
+        try { const { token, name } = await derivePageToken(pid, longUser); if (token) { pages.push({ id: String(pid), name: name || ("Trang " + pid), token }); have.add(String(pid)); } } catch {}
+      }
+      // Fallback: nếu là PAGE token đơn lẻ -> nhận đúng 1 Trang đó.
+      if (!pages.length && (dbg.type === "PAGE" || dbg.profile_id)) {
+        try {
+          const me = await (await fetch(`${G}/me?fields=id,name&access_token=${encodeURIComponent(longUser)}`)).json();
+          if (me.id) pages = [{ id: String(me.id), name: me.name || ("Trang " + me.id), token: longUser }];
+        } catch {}
+      }
+      if (!pages.length) {
+        const scopes = dbg.scopes || [];
+        const detail = `app token=${dbg.app_id || "?"} | app .env=${appId} | loại=${dbg.type || "?"} | quyền=${scopes.join(",") || "(trống)"}` +
+          (dbgErr ? ` | debug: ${dbgErr}` : "") + (accountsErr ? ` | /me/accounts: ${accountsErr}` : "");
+        if (dbg.is_valid === false) return res.status(400).json({ error: "Token không hợp lệ hoặc đã hết hạn — tạo token mới.", detail });
+        if (dbg.app_id && String(dbg.app_id) !== String(appId))
+          return res.status(400).json({ error: `Token được tạo cho ứng dụng KHÁC (app ${dbg.app_id}), không khớp app trong .env (${appId}). Ở Graph API Explorer, chọn đúng "Meta App" của bạn ở góc trên rồi Generate lại.`, detail });
+        if (scopes.length && !scopes.includes("pages_show_list"))
+          return res.status(400).json({ error: "Token thiếu quyền pages_show_list. Ở Graph API Explorer bấm Permissions thêm pages_show_list, pages_manage_posts, pages_read_engagement rồi Generate lại.", detail });
+        if (accountsErr)
+          return res.status(400).json({ error: "Facebook báo lỗi khi lấy danh sách Trang: " + accountsErr, detail });
+        return res.status(400).json({ error: "Facebook trả về danh sách Trang RỖNG (token hợp lệ nhưng không thấy Trang). Thường do Trang nằm trong Business Manager chưa gán trực tiếp cho bạn, hoặc app chưa được duyệt 'pages_show_list'. Thử dán thẳng PAGE token của từng Trang.", detail });
+      }
+      const cfg = loadConfig();
+      const existingEnv = {};
+      for (const r of cfg.byThread.values()) if (r.fanpageId && r.fanpageTokenEnv) existingEnv[r.fanpageId] = r.fanpageTokenEnv;
+      const pstore = loadPages();
+      const result = [];
+      for (const p of pages) {
+        const envName = existingEnv[p.id] || pstore[p.id]?.envName || envNameFor(p.name, p.id);
+        setEnvVar(envName, p.token);
+        let expires_at = null;
+        try { expires_at = (await debugToken(p.token, appId, secret)).expires_at ?? null; } catch {}
+        pstore[p.id] = { name: p.name, envName, expiresAt: expires_at };
+        result.push({ fanpageId: p.id, name: p.name, envName, expires_at });
+      }
+      savePages(pstore);
+      _pagesCache = null;
+      ctx.reloadConfig && ctx.reloadConfig();
+      store.pushLog("Đã phát hiện & cấp token cho " + result.length + " Trang Facebook");
+      res.json({ ok: true, result });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ===== Logs =====
+  app.get("/api/logs", requireAuth, (req, res) => res.json(store.getLogs().slice(-200).reverse()));
+
+  // ===== Trang dashboard =====
+  app.get("/", (req, res) => res.sendFile(PAGE_FILE));
+
+  const PORT = Number(process.env.WEB_PORT || 8080);
+  app.listen(PORT, () => console.log(`🌐 Web dashboard: http://localhost:${PORT}`));
+  return app;
+}
