@@ -223,11 +223,24 @@ async function main() {
     return;
   }
 
-  const api = await login();
-  await setApi(api);
+  // Đăng nhập Zalo CHẠY NỀN, KHÔNG await ở main:
+  // QR hết hạn / quét lỗi -> chỉ thử lại, KHÔNG làm sập dashboard (web đã chạy ở trên).
+  (async function ensureZaloLogin() {
+    while (!currentApi) {
+      try {
+        const api = await login();
+        await setApi(api);
+      } catch (e) {
+        status.zaloConnected = false;
+        console.error("⚠️ Đăng nhập Zalo chưa xong:", e?.message || e, "— tạo QR mới (dashboard vẫn chạy bình thường).");
+        store.pushLog("Chờ quét QR Zalo (QR cũ hết hạn) — vào tab Cài đặt để quét.");
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+  })();
 
-  console.log("\n🟢 SERVICE 24/7 đang chạy. Mở dashboard ở http://localhost:" + (process.env.WEB_PORT || 8080));
-  console.log("   (Đừng mở Zalo Web cùng lúc.)\n");
+  console.log("\n🟢 SERVICE 24/7 đang chạy. Mở dashboard ở http://localhost:" + (process.env.WEB_PORT || 8088));
+  console.log("   Chưa đăng nhập Zalo? Vào dashboard tab Cài đặt để quét QR (web không bị gián đoạn).\n");
 }
 
 main().catch((e) => { console.error("💥 Service chết:", e); process.exit(1); });
