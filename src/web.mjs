@@ -751,7 +751,7 @@ export function startWeb(ctx = {}) {
           return res.status(400).json({ error: "Token thiếu quyền pages_show_list. Ở Graph API Explorer bấm Permissions thêm pages_show_list, pages_manage_posts, pages_read_engagement rồi Generate lại.", detail });
         if (accountsErr)
           return res.status(400).json({ error: "Facebook báo lỗi khi lấy danh sách Trang: " + accountsErr, detail });
-        return res.status(400).json({ error: "Facebook trả về danh sách Trang RỖNG (token hợp lệ nhưng không thấy Trang). Thường do Trang nằm trong Business Manager chưa gán trực tiếp cho bạn, hoặc app chưa được duyệt 'pages_show_list'. Thử dán thẳng PAGE token của từng Trang.", detail });
+        return res.status(400).json({ error: "Không thấy Trang nào. Trang nằm trong Business Manager nên user token không tự liệt kê được — hãy điền ID hoặc link các Trang cần đăng vào ô '2 · Các Trang cần đăng' rồi bấm lại.", detail });
       }
       const cfg = loadConfig();
       const existingEnv = {};
