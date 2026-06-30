@@ -1080,11 +1080,13 @@ async function renderSettings(){const s=(window._st&&window._st.settings)||(awai
    <input id="claudeKeyIn" type="text" placeholder="sk-ant-api03-…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-form-type="other" name="claude-api-key-field"></div>
   <div class="row" style="gap:8px">
    <button class="btn-primary" onclick="saveAndTestClaude()">${ic('zap',15)} Lưu & kiểm tra</button>
-   ${cl.hasKey?`<button class="btn-ghost" onclick="testClaudeKey()">Kiểm tra lại</button>`:''}
+   ${cl.hasKey?`<button class="btn-ghost" onclick="testClaudeKey()">Kiểm tra lại</button><button class="btn-quiet danger" style="margin-left:auto" onclick="clearClaudeKey()">${ic('trash',14)} Xoá key</button>`:''}
   </div>
   <div id="claudeTestResult" style="margin-top:10px"></div>
  </div>`;
  if(!z.connected)startZaloPoll();}
+async function clearClaudeKey(){if(!await confirmModal('Xoá API key Claude?','Hệ thống sẽ về trống — AI ngừng viết caption tới khi bạn nhập key mới.','Xoá key','btn-danger'))return;
+ try{await api('/api/claude/key','POST',{clear:true});toast('Đã xoá key — hệ thống trống');$('#claudeKeyIn').value='';renderSettings()}catch(e){toast('Lỗi: '+e.message)}}
 async function saveAndTestClaude(){const k=$('#claudeKeyIn').value.trim();const r=$('#claudeTestResult');
  if(k&&!k.startsWith('sk-ant-')){if(r)r.innerHTML=`<div class="cardmsg err" style="display:block">Key phải bắt đầu bằng <b>sk-ant-</b>. Ô đang chứa: <code>${esc(k.slice(0,14))}…</code> — xoá sạch rồi dán lại key thật.</div>`;return}
  if(r)r.innerHTML=`<span class="muted"><span class="spin"></span> Đang lưu & kiểm tra…</span>`;
