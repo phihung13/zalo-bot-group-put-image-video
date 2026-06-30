@@ -248,6 +248,26 @@ export function startWeb(ctx = {}) {
     res.json(next);
   });
 
+  // Hẹn giờ đăng (thay vì đăng ngay). Bộ hẹn giờ trong service.mjs sẽ tự đăng khi tới giờ.
+  app.post("/api/pending/:id/schedule", requireAuth, (req, res) => {
+    const d = store.getPending(req.params.id);
+    if (!d) return res.status(404).json({ error: "không thấy draft" });
+    const at = Number(req.body?.at);
+    if (!at || at < Date.now() - 60000) return res.status(400).json({ error: "Thời gian hẹn phải ở tương lai" });
+    const route = routeForThread(loadConfig(), d.threadId) || {};
+    if (!route.fanpageToken) return res.status(400).json({ error: "Trang chưa có token (vào tab Token cấp trước)" });
+    const next = store.updatePending(d.id, { scheduledAt: at, scheduledPublished: req.body?.published !== false, _publishing: false });
+    store.pushLog(`Hẹn giờ đăng ${new Date(at).toLocaleString("vi-VN")}: ${d.routeLabel}`);
+    res.json(next);
+  });
+  app.post("/api/pending/:id/unschedule", requireAuth, (req, res) => {
+    const d = store.getPending(req.params.id);
+    if (!d) return res.status(404).json({ error: "không thấy draft" });
+    const next = store.updatePending(d.id, { scheduledAt: null, _publishing: false });
+    store.pushLog(`Hủy lịch đăng: ${d.routeLabel || d.id}`);
+    res.json(next);
+  });
+
   app.post("/api/pending/:id/approve", requireAuth, async (req, res) => {
     const d = store.getPending(req.params.id);
     if (!d) return res.status(404).json({ error: "không thấy draft" });

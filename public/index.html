@@ -467,6 +467,7 @@ const ICON={
  film:'<path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2"/>',
  sparkles:'<path d="M9.94 4.66 11 2l1.06 2.66L14.7 5.7 12 6.78 11 9.5 9.94 6.78 7.3 5.7Z"/><path d="M19 11l.7 1.8 1.8.7-1.8.7L19 16l-.7-1.8-1.8-.7 1.8-.7Z"/><path d="M5 13l.7 1.8 1.8.7-1.8.7L5 18l-.7-1.8L2.5 15.5l1.8-.7Z"/>',
  repeat:'<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+ clock:'<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
  ext:'<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
  refresh:'<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/>',
  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
@@ -668,6 +669,14 @@ async function renderDrafts(){const all=await api('/api/posts');const el=$('#dra
        :`<div class="channelmeta">Đã bỏ Google Business.</div>`)}
     </div>`:''}
    </div>
+   ${inPending&&fbStatus==='pending'?`<div class="schedule-row" style="margin:0 14px 12px;padding:10px 12px;border:1px dashed var(--border);border-radius:var(--r-xs);background:var(--surface-2)">
+    ${d.scheduledAt?`<div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <span>${ic('clock',15)} Sẽ tự đăng lúc <b>${new Date(d.scheduledAt).toLocaleString('vi-VN')}</b></span>
+      <button class="btn-quiet danger" onclick="unschedule('${d.id}')">Hủy lịch</button></div>`
+    :`<div class="row" style="gap:8px;align-items:flex-end;flex-wrap:wrap">
+      <div class="fieldset" style="margin:0;flex:1;min-width:200px"><label for="sched_${d.id}">${ic('clock',14)} Hẹn giờ đăng (thay vì đăng ngay)</label><input type="datetime-local" id="sched_${d.id}"></div>
+      <button class="btn-ghost" onclick="schedulePost('${d.id}')">Hẹn giờ đăng</button></div>`}
+   </div>`:''}
    ${linkRow}
    <div class="compact-actions"><span class="muted">${doneCount}/${totalCount} kênh</span><button class="btn-ghost" onclick="openPostDetail('${d.id}')">${ic('ext',14)} Chi tiết</button></div>
    ${inPending?`<div class="fbpost-util">
@@ -692,6 +701,10 @@ async function renderDrafts(){const all=await api('/api/posts');const el=$('#dra
 function toggleEdit(id){const e=$('#edit_'+id);if(e)e.classList.toggle('hide')}
 async function reloadFooter(id){try{await api('/api/pending/'+id+'/reload-footer','POST');toast('Đã tải lại chân bài mới nhất');render()}catch(e){toast('Lỗi: '+e.message)}}
 async function reloadFooterPosted(id){try{await api('/api/posted/'+id+'/reload-footer','POST');toast('Đã cập nhật chân bài (bản lưu)');render()}catch(e){toast('Lỗi: '+e.message)}}
+async function schedulePost(id){const inp=$('#sched_'+id);if(!inp||!inp.value)return toast('Chọn ngày giờ trước');
+ const at=new Date(inp.value).getTime();if(!at||at<Date.now())return toast('Thời gian phải ở tương lai');
+ try{await api('/api/pending/'+id+'/schedule','POST',{at,published:true});toast('Đã hẹn giờ đăng');render()}catch(e){toast('Lỗi: '+e.message)}}
+async function unschedule(id){try{await api('/api/pending/'+id+'/unschedule','POST');toast('Đã hủy lịch');render()}catch(e){toast('Lỗi: '+e.message)}}
 async function redraft(id){if(!await confirmModal('Đăng nháp lại?','Tạo một bản nháp MỚI từ bài này (chân bài mới nhất) để bạn duyệt & đăng lại. Bài đã đăng cũ vẫn giữ nguyên.','Tạo nháp','btn-primary'))return;
  try{await api('/api/posted/'+id+'/redraft','POST');toast('Đã tạo bản nháp mới — vào Cần xử lý để duyệt');_postFilter='needs';localStorage.setItem('postFilter','needs');render()}catch(e){toast('Lỗi: '+e.message)}}
 async function aiRewrite(id){const ta=$('#cap_'+id);const m=$('#airw_'+id);if(!ta)return;
