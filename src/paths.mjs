@@ -31,3 +31,12 @@ export function saveToken(name, value) {
   try { fs.mkdirSync(path.dirname(TOKENS_FILE), { recursive: true }); fs.writeFileSync(TOKENS_FILE, JSON.stringify(m, null, 2), { encoding: "utf8" }); } catch {}
   process.env[name] = value;
 }
+
+/** Xoá hẳn 1 token khỏi tokens.json + process.env (đưa về trống). */
+export function removeToken(name) {
+  let m = {};
+  try { m = JSON.parse(fs.readFileSync(TOKENS_FILE, "utf8")); } catch {}
+  delete m[name];
+  try { fs.mkdirSync(path.dirname(TOKENS_FILE), { recursive: true }); fs.writeFileSync(TOKENS_FILE, JSON.stringify(m, null, 2), { encoding: "utf8" }); } catch {}
+  delete process.env[name];
+}

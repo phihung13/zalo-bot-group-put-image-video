@@ -10,7 +10,7 @@ import { exchangeLongLivedUser, listUserPages, debugToken, setEnvVar, derivePage
 import { loadPages, savePages, envNameFor } from "./pages.mjs";
 import { beginGBPLogin, cancelGBPLogin, finishGBPLogin, gbpLoginStatus, inspectGbpSession, loadGbpBusinesses, saveGbpBusinesses } from "./gbp.mjs";
 import { loadConfig, routeForThread } from "./config.mjs";
-import { dataPath, CRED_FILE, QR_FILE, saveToken } from "./paths.mjs";
+import { dataPath, CRED_FILE, QR_FILE, saveToken, removeToken } from "./paths.mjs";
 
 const ROUTES_FILE = process.env.ROUTES_FILE || "config/routes.json";
 const PAGE_FILE = path.resolve("public/index.html");
@@ -554,7 +554,8 @@ export function startWeb(ctx = {}) {
   });
 
   app.post("/api/claude/key", requireAuth, (req, res) => {
-    const { key, model } = req.body || {};
+    const { key, model, clear } = req.body || {};
+    if (clear) { removeToken("ANTHROPIC_API_KEY"); store.pushLog("Đã xoá API key Claude (về trống)."); return res.json({ ok: true, cleared: true }); }
     if (key) {
       if (!String(key).startsWith("sk-ant-")) return res.status(400).json({ error: "Key không hợp lệ (phải bắt đầu bằng sk-ant-)" });
       saveToken("ANTHROPIC_API_KEY", String(key).trim());
