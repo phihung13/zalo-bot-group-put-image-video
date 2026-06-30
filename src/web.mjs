@@ -760,6 +760,21 @@ export function startWeb(ctx = {}) {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
+  // Xóa token 1 Trang (gỡ token + bỏ Trang khỏi danh sách)
+  app.post("/api/token/delete", requireAuth, (req, res) => {
+    const { fanpageId } = req.body || {};
+    if (!fanpageId) return res.status(400).json({ error: "thiếu fanpageId" });
+    const pstore = loadPages();
+    const meta = pstore[fanpageId];
+    const envName = meta?.envName || [...loadConfig().byThread.values()].find((r) => String(r.fanpageId) === String(fanpageId))?.fanpageTokenEnv;
+    if (envName) removeToken(envName);
+    delete pstore[fanpageId];
+    savePages(pstore);
+    _pagesCache = null;
+    store.pushLog(`Đã xóa token Trang ${fanpageId}`);
+    res.json({ ok: true });
+  });
+
   // ===== Logs =====
   app.get("/api/logs", requireAuth, (req, res) => res.json(store.getLogs().slice(-200).reverse()));
 
