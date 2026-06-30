@@ -65,6 +65,26 @@ async function askVision(buffers, instruction, { maxTokens = 400, log = () => {}
   } catch (e) { log(`askVision lỗi: ${e.message}`); return null; }
 }
 
+/** Viết LẠI 1 caption cho hấp dẫn hơn (giữ thông tin chính + giữ nguyên khối liên hệ cuối bài). null nếu lỗi/tắt AI. */
+export async function rewriteCaption(text, { styleGuide = "", log = () => {} } = {}) {
+  const src = String(text || "").trim();
+  if (!hasApiKey() || !src) return null;
+  try {
+    const client = new Anthropic();
+    const instruction = [
+      "Viết LẠI đoạn caption Facebook dưới đây cho HẤP DẪN, mượt mà, thu hút phụ huynh hơn — nhưng GIỮ nguyên các sự việc/thông tin chính, KHÔNG bịa thêm chi tiết không có trong bản gốc.",
+      "Nếu CUỐI bài có khối thông tin liên hệ (hotline, địa chỉ, hashtag, Google Maps...) thì GIỮ NGUYÊN khối đó, chỉ viết lại phần nội dung phía trên.",
+      styleGuide ? ("Tham khảo GIỌNG VĂN của trang qua bài mẫu sau (chỉ học giọng, KHÔNG lấy nội dung):\n" + String(styleGuide).slice(0, 1500)) : "",
+      "Caption gốc:\n" + src,
+      "Chỉ trả về CAPTION mới, không giải thích, không tiền tố.",
+    ].filter(Boolean).join("\n\n");
+    const resp = await client.messages.create({ model: MODEL, max_tokens: 800, system: SYSTEM, messages: [{ role: "user", content: instruction }] });
+    if (resp.stop_reason === "refusal") return null;
+    const out = resp.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+    return out ? stripMarkdown(out) : null;
+  } catch (e) { log(`rewriteCaption lỗi: ${e.message}`); return null; }
+}
+
 const PER_IMAGE_INSTRUCTION =
   "Viết 1 câu caption NGẮN (tối đa ~20 từ) tiếng Việt có dấu, mô tả khoảnh khắc của bé trong ảnh này, ấm áp tự nhiên. " +
   "KHÔNG bịa chi tiết không thấy. Chỉ trả về đúng 1 câu, không emoji thừa, không tiền tố.";

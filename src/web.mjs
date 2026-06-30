@@ -12,6 +12,7 @@ import { exchangeLongLivedUser, listUserPages, debugToken, setEnvVar, derivePage
 import { loadPages, savePages, envNameFor } from "./pages.mjs";
 import { beginGBPLogin, cancelGBPLogin, finishGBPLogin, gbpLoginStatus, inspectGbpSession, loadGbpBusinesses, saveGbpBusinesses, importGbpSession } from "./gbp.mjs";
 import { loadConfig, routeForThread } from "./config.mjs";
+import { rewriteCaption } from "./caption.mjs";
 import { dataPath, CRED_FILE, QR_FILE, saveToken, removeToken } from "./paths.mjs";
 
 const ROUTES_FILE = process.env.ROUTES_FILE || "config/routes.json";
@@ -210,6 +211,21 @@ export function startWeb(ctx = {}) {
     }
     const d = store.updatePending(req.params.id, patch);
     res.json(d);
+  });
+
+  // AI viết lại caption cho hấp dẫn hơn (không tự lưu — trả về để xem trước rồi bấm Lưu sửa)
+  app.post("/api/pending/:id/rewrite", requireAuth, async (req, res) => {
+    const d = store.getPending(req.params.id);
+    if (!d) return res.status(404).json({ error: "không thấy draft" });
+    const cur = (req.body?.caption != null ? req.body.caption : d.caption) || "";
+    if (!cur.trim()) return res.status(400).json({ error: "Bài chưa có nội dung để viết lại" });
+    const route = routeForThread(loadConfig(), d.threadId) || {};
+    try {
+      const out = await rewriteCaption(cur, { styleGuide: route.styleSample || "", log: store.pushLog });
+      if (!out) return res.status(400).json({ error: "AI chưa viết lại được — kiểm tra API key Claude ở tab Cài đặt." });
+      store.pushLog(`AI viết lại caption: ${d.routeLabel || d.id}`);
+      res.json({ ok: true, caption: out });
+    } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
   app.post("/api/pending/:id/approve", requireAuth, async (req, res) => {
