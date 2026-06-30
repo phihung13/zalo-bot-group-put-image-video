@@ -871,16 +871,18 @@ function pageField(r,i,pages){
  </select>`;
 }
 function pickPage(i,fid){const r=window._routes.routes[i];r.fanpageId=fid;const p=(window._fbpages||[]).find(x=>x.fanpageId===fid);if(p&&p.envName)r.fanpageTokenEnv=p.envName;}
+function gbpIdsR(r){return (Array.isArray(r.gbpLocationIds)&&r.gbpLocationIds.length)?r.gbpLocationIds.map(String):(r.gbpLocationId?[String(r.gbpLocationId)]:[])}
 function gbpField(r,i,items){
- if(items===undefined)return `<input id="r_gbp_${i}" value="${esc(r.gbpLocationId||'')}" oninput="_routes.routes[${i}].gbpLocationId=this.value.trim();setRouteBadge(${i})" placeholder="Đang tải danh sách Google Business...">`;
- if(!items||!items.length)return `<input id="r_gbp_${i}" value="${esc(r.gbpLocationId||'')}" oninput="_routes.routes[${i}].gbpLocationId=this.value.trim();setRouteBadge(${i})" placeholder="Để trống nếu không đăng Google Business"><p class="field-help">Chưa lưu hồ sơ nào. Vào tab <b>Google Business</b> để thêm, hoặc nhập ID tay.</p>`;
- const inList=items.some(x=>x.id===r.gbpLocationId);
- return `<select id="r_gbp_${i}" onchange="_routes.routes[${i}].gbpLocationId=this.value;if(!this.value)_routes.routes[${i}].gbpAutoPublish=false;setRouteBadge(${i});paintRoutes()">
-  <option value="">— Không đăng Google Business —</option>
-  ${items.map(x=>`<option value="${esc(x.id)}" ${x.id===r.gbpLocationId?'selected':''}>${esc(x.name||('Business '+x.id))}</option>`).join('')}
-  ${(!inList&&r.gbpLocationId)?`<option value="${esc(r.gbpLocationId)}" selected>ID: ${esc(r.gbpLocationId)}</option>`:''}
- </select>`;
+ const sel=gbpIdsR(r);
+ if(items===undefined)return `<p class="field-help"><span class="spin"></span> Đang tải danh sách Google Business…</p>`;
+ if(!items||!items.length)return `<input id="r_gbp_${i}" value="${esc(sel.join(', '))}" oninput="setGbpIds(${i},this.value)" placeholder="Nhập ID (nhiều business ngăn bằng dấu phẩy)"><p class="field-help">Chưa lưu hồ sơ nào. Vào tab <b>Google Business</b> để thêm, hoặc nhập ID tay (phẩy ngăn cách).</p>`;
+ return `<div class="gbp-multi" style="display:flex;flex-direction:column;gap:6px;border:1px solid var(--border);border-radius:var(--r-xs);padding:8px;max-height:160px;overflow:auto">
+  ${items.map(x=>`<label class="sw" style="gap:8px"><input type="checkbox" value="${esc(x.id)}" ${sel.includes(String(x.id))?'checked':''} onchange="toggleGbpId(${i},'${esc(x.id)}',this.checked)"> ${esc(x.name||('Business '+x.id))}</label>`).join('')}
+  ${sel.filter(id=>!items.some(x=>String(x.id)===id)).map(id=>`<label class="sw" style="gap:8px"><input type="checkbox" checked onchange="toggleGbpId(${i},'${esc(id)}',this.checked)"> ID: ${esc(id)} (chưa lưu hồ sơ)</label>`).join('')}
+ </div><p class="field-help">Tích các business muốn đăng (có thể chọn NHIỀU). Bỏ tích hết = không đăng GBP.</p>`;
 }
+function toggleGbpId(i,id,on){const r=window._routes.routes[i];let a=gbpIdsR(r).slice();id=String(id);if(on){if(!a.includes(id))a.push(id)}else{a=a.filter(x=>x!==id)}r.gbpLocationIds=a;r.gbpLocationId=a[0]||'';if(!a.length)r.gbpAutoPublish=false;setRouteBadge(i)}
+function setGbpIds(i,str){const a=str.split(',').map(s=>s.trim()).filter(Boolean);const r=window._routes.routes[i];r.gbpLocationIds=a;r.gbpLocationId=a[0]||'';if(!a.length)r.gbpAutoPublish=false;setRouteBadge(i)}
 async function ensureFbPages(){if(window._fbpages===undefined){try{window._fbpages=await api('/api/fb/pages')}catch(e){window._fbpages=null}}}
 async function ensureGbpBusinesses(){if(window._gbps===undefined){try{window._gbps=await api('/api/gbp/businesses')}catch(e){window._gbps=null}}}
 async function ensureGroups(){if(window._zgroups===undefined){try{window._zgroups=await api('/api/zalo/groups')}catch(e){window._zgroups=null}}}
@@ -908,7 +910,7 @@ function paintRoutes(){const data=window._routes||{routes:[]};const list=Array.i
  el.innerHTML=head+list.map((r,i)=>`<div class="card route-card" style="background:var(--surface-2)" role="group" aria-label="Cấu hình nhóm ${i+1}">
    <div class="route-head" onclick="toggleField('route_${i}')">
     <b class="route-title" id="rt_${i}">${esc(r.label||('Nhóm '+(i+1)))}</b>
-    <span class="route-badges"><span class="pill ${r.enabled!==false?'on':'off'}" id="bp_${i}">${r.enabled!==false?'Bật':'Tắt'}</span><span class="chip${r.facebookAutoPublish?' warn':''}" id="fp_${i}">${r.facebookAutoPublish?'FB tự đăng':'FB chờ duyệt'}</span>${r.gbpLocationId?`<span class="chip${r.gbpAutoPublish?' warn':''}" id="gp_${i}">${r.gbpAutoPublish?'GBP tự đăng':'GBP chờ duyệt'}</span>`:''}<span class="chev${(r.threadId&&r.fanpageId)?'':' open'}" id="arrow_route_${i}">${ic('chevron',16)}</span></span>
+    <span class="route-badges"><span class="pill ${r.enabled!==false?'on':'off'}" id="bp_${i}">${r.enabled!==false?'Bật':'Tắt'}</span><span class="chip${r.facebookAutoPublish?' warn':''}" id="fp_${i}">${r.facebookAutoPublish?'FB tự đăng':'FB chờ duyệt'}</span>${gbpIdsR(r).length?`<span class="chip${r.gbpAutoPublish?' warn':''}" id="gp_${i}">${r.gbpAutoPublish?'GBP tự đăng':'GBP chờ duyệt'} (${gbpIdsR(r).length})</span>`:''}<span class="chev${(r.threadId&&r.fanpageId)?'':' open'}" id="arrow_route_${i}">${ic('chevron',16)}</span></span>
    </div>
    <div id="fld_route_${i}" class="route-body${(r.threadId&&r.fanpageId)?' hide':''}">
     <div class="fieldset"><label for="r_label_${i}">Tên gợi nhớ</label><input id="r_label_${i}" value="${esc(r.label||'')}" oninput="_routes.routes[${i}].label=this.value;const t=$('#rt_${i}');if(t)t.textContent=this.value||'Nhóm ${i+1}'" placeholder="VD: Lớp Mầm → Page Việt Anh"></div>
@@ -920,7 +922,7 @@ function paintRoutes(){const data=window._routes||{routes:[]};const list=Array.i
     <div class="swrow">
      <label class="sw rsw"><input type="checkbox" ${r.enabled!==false?'checked':''} onchange="_routes.routes[${i}].enabled=this.checked;setRouteBadge(${i})"> Bật nhóm này</label>
      <label class="sw rsw rsw-warn"><input type="checkbox" ${r.facebookAutoPublish?'checked':''} onchange="_routes.routes[${i}].facebookAutoPublish=this.checked;_routes.routes[${i}].published=this.checked;setRouteBadge(${i})"> Facebook tự đăng công khai</label>
-     <label class="sw rsw rsw-warn"><input type="checkbox" ${r.gbpAutoPublish?'checked':''} onchange="_routes.routes[${i}].gbpAutoPublish=this.checked;setRouteBadge(${i})" ${r.gbpLocationId?'':'disabled'}> Google Business tự đăng</label>
+     <label class="sw rsw rsw-warn"><input type="checkbox" ${r.gbpAutoPublish?'checked':''} onchange="_routes.routes[${i}].gbpAutoPublish=this.checked;setRouteBadge(${i})" ${gbpIdsR(r).length?'':'disabled'}> Google Business tự đăng</label>
     </div>
    <div class="collapse-head" style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px" onclick="toggleField('adv_${i}')"><label>Cài đặt nâng cao</label><span class="collapse-state">thời gian · bình luận · chân bài <span class="chev" id="arrow_adv_${i}">${ic('chevron',14)}</span></span></div>
    <div id="fld_adv_${i}" class="hide">
@@ -945,18 +947,19 @@ function paintRoutes(){const data=window._routes||{routes:[]};const list=Array.i
   `<div class="card"><div class="row"><button class="btn-primary" onclick="saveRoutes()">Lưu cấu hình</button><button class="btn-ghost" onclick="addRoute()">+ Thêm nhóm</button>${groups===null?'<span class="field-help">Chưa tải được danh sách nhóm (Zalo chưa kết nối) — tạm nhập mã nhóm tay.</span>':''}</div></div>`;
 }
 async function deleteRoute(e,i){e.stopPropagation();const r=window._routes&&window._routes.routes&&window._routes.routes[i];const name=r&&r.label?`"${r.label}"`:`Nhóm ${i+1}`;if(!await confirmModal(`Xoá ${name}?`,'Nhóm này sẽ bị xoá khỏi cấu hình. Các bài đã đăng không bị ảnh hưởng.','Xoá nhóm','btn-danger'))return;window._routes.routes.splice(i,1);paintRoutes();saveRoutes()}
-function addRoute(){if(!window._routes)window._routes={routes:[]};window._routes.routes.push({threadId:'',label:'',fanpageId:'',fanpageTokenEnv:'',published:false,facebookAutoPublish:false,gbpAutoPublish:false,enabled:true,comment:'',captionFooter:'',gbpLocationId:'',debounceMs:60000,maxWaitMs:300000});paintRoutes()}
+function addRoute(){if(!window._routes)window._routes={routes:[]};window._routes.routes.push({threadId:'',label:'',fanpageId:'',fanpageTokenEnv:'',published:false,facebookAutoPublish:false,gbpAutoPublish:false,enabled:true,comment:'',captionFooter:'',gbpLocationIds:[],gbpLocationId:'',debounceMs:60000,maxWaitMs:300000});paintRoutes()}
 async function clearComment(i){if(!await confirmModal('Xoá bình luận tự động?','Nhóm này sẽ không tự bình luận dưới bài nữa.','Xoá','btn-danger'))return;window._routes.routes[i].comment='';const e=$('#r_cmt_'+i);if(e)e.value='';saveRoutes()}
 function toggleField(id){const f=$('#fld_'+id);if(!f)return;const collapsed=f.classList.toggle('hide');const a=$('#arrow_'+id);if(a)a.classList.toggle('open',!collapsed);
  const btn=document.querySelector(`[onclick="toggleField('${id}')"]`);
  if(btn&&id.startsWith('caps_')){const count=(btn.textContent.match(/^\s*([0-9]+)/)||[])[1]||'';btn.innerHTML=(count?count+' ảnh · ':'')+(collapsed?'Chi tiết ':'Thu gọn ')+ic('chevron',14);btn.setAttribute('aria-expanded',String(!collapsed));}}
 function setRouteBadge(i){const r=window._routes.routes[i];const b=$('#bp_'+i);if(b){b.className='pill '+(r.enabled!==false?'on':'off');b.textContent=r.enabled!==false?'Bật':'Tắt'}
  const f=$('#fp_'+i);if(f){f.className='chip'+(r.facebookAutoPublish?' warn':'');f.textContent=r.facebookAutoPublish?'FB tự đăng':'FB chờ duyệt'}
- const g=$('#gp_'+i);if(g){g.className='chip'+(r.gbpAutoPublish?' warn':'');g.textContent=r.gbpAutoPublish?'GBP tự đăng':'GBP chờ duyệt'}}
+ const g=$('#gp_'+i);if(g){g.className='chip'+(r.gbpAutoPublish?' warn':'');g.textContent=(r.gbpAutoPublish?'GBP tự đăng':'GBP chờ duyệt')+' ('+gbpIdsR(r).length+')'}}
 async function saveRoutes(){const rs=(window._routes&&window._routes.routes)||[];
  for(let i=0;i<rs.length;i++){const r=rs[i],miss=[];
   r.facebookAutoPublish=!!r.facebookAutoPublish;
-  r.gbpAutoPublish=!!(r.gbpLocationId&&r.gbpAutoPublish);
+  r.gbpLocationIds=gbpIdsR(r);r.gbpLocationId=r.gbpLocationIds[0]||'';
+  r.gbpAutoPublish=!!(r.gbpLocationIds.length&&r.gbpAutoPublish);
   if(r.facebookAutoPublish)r.published=true;
   if(!r.threadId)miss.push('nhóm Zalo');if(!r.fanpageId)miss.push('Trang Facebook');
   if(miss.length){toast('Chưa lưu — Nhóm '+(i+1)+' ('+(r.label||'chưa đặt tên')+') thiếu: '+miss.join(', '));return}
