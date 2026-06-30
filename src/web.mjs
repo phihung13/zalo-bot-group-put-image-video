@@ -579,6 +579,20 @@ export function startWeb(ctx = {}) {
     } catch (e) { res.json({ ok: false, error: e.message }); }
   });
 
+  // ===== Cấu hình ứng dụng Facebook (App ID + Secret) qua dashboard =====
+  app.post("/api/fb/app", requireAuth, (req, res) => {
+    const { appId, appSecret, clear } = req.body || {};
+    if (clear) {
+      removeToken("FB_APP_ID"); removeToken("FB_APP_SECRET");
+      _pagesCache = null; store.pushLog("Đã xóa cấu hình App Facebook (về trống).");
+      return res.json({ ok: true, cleared: true });
+    }
+    if (appId != null && String(appId).trim()) saveToken("FB_APP_ID", String(appId).trim());
+    if (appSecret != null && String(appSecret).trim()) saveToken("FB_APP_SECRET", String(appSecret).trim());
+    _pagesCache = null; store.pushLog("Đã lưu cấu hình App Facebook.");
+    res.json({ ok: true });
+  });
+
   // ===== Token & danh sách Trang =====
   const FBV = process.env.FB_GRAPH_VERSION || "v21.0";
   const G = `https://graph.facebook.com/${FBV}`;

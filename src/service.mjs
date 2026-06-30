@@ -6,7 +6,7 @@ import { Zalo, ThreadType } from "zca-js";
 import qrcode from "qrcode-terminal";
 import { extractEvent } from "./extract.mjs";
 import { Batcher, MemoryStore } from "./batcher.mjs";
-import { loadConfig, routeForThread, seedRoutesIfMissing } from "./config.mjs";
+import { loadConfig, routeForThread } from "./config.mjs";
 import { processBatch } from "./pipeline.mjs";
 import { publishFacebookDraft, publishGbpDraft } from "./publish.mjs";
 import { startWeb } from "./web.mjs";
@@ -16,7 +16,7 @@ import { styleFor } from "./styles.mjs";
 import { CRED_FILE, QR_FILE, dataPath, loadTokensIntoEnv } from "./paths.mjs";
 
 loadTokensIntoEnv(); // nạp token Trang FB đã lưu (data/tokens.json) vào process.env trước khi chạy
-seedRoutesIfMissing(); // lần đầu trên VPS: nạp routes.json mẫu (biết ID Trang) nếu volume còn trống
+// (Không seed routes — app khởi tạo TRỐNG; người dùng tự cấu hình qua dashboard.)
 
 // Log ra file + màn hình + dashboard
 const _logStream = fs.createWriteStream(dataPath("service.log"), { flags: "a" });
