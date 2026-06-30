@@ -58,8 +58,24 @@ export function inspectGbpSession({ sessionFile = GBP_SESSION_FILE } = {}) {
   };
 }
 
+/** Lưu session (storageState JSON) lên volume — dùng khi đăng nhập ở MÁY LOCAL rồi tải lên VPS. */
+export function importGbpSession(state, { sessionFile = GBP_SESSION_FILE } = {}) {
+  let obj = state;
+  if (typeof state === "string") { try { obj = JSON.parse(state); } catch { throw new Error("File không phải JSON hợp lệ."); } }
+  if (!obj || (!Array.isArray(obj.cookies) && !Array.isArray(obj.origins))) {
+    throw new Error("File session không hợp lệ (thiếu 'cookies'). Phải là file data/gbp-session.json tạo bởi `npm run gbp:login`.");
+  }
+  fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
+  fs.writeFileSync(sessionFile, JSON.stringify(obj), { encoding: "utf8" });
+  return inspectGbpSession({ sessionFile });
+}
+
 export async function beginGBPLogin({ sessionFile = GBP_SESSION_FILE } = {}) {
   if (loginFlow) return { already: true, startedAt: loginFlow.startedAt };
+  // Trình duyệt CÓ giao diện cần màn hình. VPS Linux không có X server -> báo rõ, KHÔNG crash (tránh kéo Zalo rớt).
+  if (process.platform === "linux" && !process.env.DISPLAY) {
+    throw new Error("Máy chủ không có màn hình (headless) nên không mở được trình duyệt đăng nhập. Hãy đăng nhập Google ở MÁY LOCAL bằng lệnh: npm run gbp:login — rồi tải file data/gbp-session.json lên ở mục 'Tải session lên' bên dưới.");
+  }
   const chromium = await getChromium();
   const browser = await chromium.launch({ headless: false });
   const ctx = await browser.newContext(fs.existsSync(sessionFile) ? { storageState: sessionFile } : {});
