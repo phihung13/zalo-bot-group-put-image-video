@@ -219,6 +219,32 @@ async function main() {
   startWeb({ status, reloadConfig, getZalo: () => currentApi, relogin: reloginZalo, reconnect: reconnectZalo, getLive: () => live.snapshot(),
     closeNow: (tid) => batcher.close(String(tid), "manual") }); // web dashboard
 
+  // ===== BỘ HẸN GIỜ: mỗi 30s, đăng các bài đã tới giờ hẹn =====
+  setInterval(async () => {
+    const now = Date.now();
+    const due = store.listPending().filter((d) => d.scheduledAt && d.scheduledAt <= now && !d._publishing);
+    for (const d of due) {
+      store.updatePending(d.id, { _publishing: true });
+      const route = getRoute(d.threadId) || { fanpageId: d.fanpageId, fanpageToken: process.env[d.fanpageTokenEnv], comment: d.comment, gbpLocationIds: d.gbpLocationIds, captionFooter: d.captionFooter };
+      if (!route.fanpageToken) { store.updatePending(d.id, { _publishing: false }); store.pushLog(`Hẹn giờ: "${d.routeLabel}" chưa có token Facebook — bỏ qua, sẽ thử lại.`); continue; }
+      try {
+        const published = d.scheduledPublished !== false;
+        const r = await publishFacebookDraft(d, route, { published, comment: route.comment, log: (m) => console.log("  [hẹn giờ]", m) });
+        const links = r.links || [];
+        const gbpIds = (route.gbpLocationIds && route.gbpLocationIds.length) ? route.gbpLocationIds : (route.gbpLocationId ? [route.gbpLocationId] : []);
+        if (gbpIds.length && (d.savedImages || []).length) {
+          publishGbpDraft(d, route, { log: (m) => console.log("  [hẹn giờ gbp]", m) }).catch((e) => store.pushLog("Hẹn giờ GBP lỗi: " + e.message));
+        }
+        store.removePending(d.id);
+        store.addPosted({ ...d, scheduledAt: null, _publishing: undefined, postedAt: Date.now(), published, links });
+        store.pushLog(`✅ ĐĂNG THEO LỊCH: ${d.routeLabel} → ${links.join(" ")}`);
+      } catch (e) {
+        store.updatePending(d.id, { _publishing: false });
+        store.pushLog(`Đăng theo lịch lỗi (${d.routeLabel}): ${e?.message || e} — giữ lại, sẽ thử lại.`);
+      }
+    }
+  }, 30000);
+
   console.log(`📋 ${cfg.byThread.size} route. Theo dõi:`, [...cfg.byThread.keys()]);
 
   if (process.env.WEB_ONLY === "1") {
