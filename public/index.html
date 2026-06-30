@@ -966,12 +966,12 @@ async function saveRoutes(){const rs=(window._routes&&window._routes.routes)||[]
 async function renderToken(){const t=await api('/api/token');const el=$('#token');
  const appOk=!!t.appId&&!!t.hasSecret;
  const appCard=`<div class="card"><div class="card-head"><b>Ứng dụng Facebook</b><span class="pill ${appOk?'on':'off'}">${appOk?'đã cấu hình':'chưa cấu hình'}</span></div>
-  <p class="muted" style="margin:0 0 10px;font-size:var(--fs-sm)">Lấy ở <b>developers.facebook.com</b> → ứng dụng → Cài đặt → Cơ bản.</p>
+  <p class="muted" style="margin:0 0 10px;font-size:var(--fs-sm)">Mở trang ứng dụng → <b>Cài đặt → Cơ bản</b> để lấy App ID + Khoá bí mật.</p>
   <div class="row" style="gap:8px;flex-wrap:wrap">
    <div class="fieldset" style="flex:1;min-width:150px;margin:0"><label for="fbAppId">App ID</label><input id="fbAppId" value="${t.appId?esc(t.appId):''}" placeholder="VD: 1051896344183668"></div>
    <div class="fieldset" style="flex:1;min-width:150px;margin:0"><label for="fbAppSecret">App Secret</label><input id="fbAppSecret" type="password" autocomplete="off" placeholder="${t.hasSecret?'•••• đã có (để trống = giữ)':'Khoá bí mật'}"></div>
   </div>
-  <div class="row" style="margin-top:10px;gap:8px"><button class="btn-primary" onclick="saveFbApp()">Lưu</button>${appOk?`<button class="btn-quiet danger" onclick="clearFbApp()">${ic('trash',14)} Xóa cấu hình</button>`:''}</div>
+  <div class="row" style="margin-top:10px;gap:8px"><button class="btn-primary" onclick="saveFbApp()">Lưu</button><a class="btn-ghost" href="https://developers.facebook.com/apps" target="_blank" rel="noopener">${ic('ext',14)} Mở Facebook Developers</a>${appOk?`<button class="btn-quiet danger" onclick="clearFbApp()">${ic('trash',14)} Xóa cấu hình</button>`:''}</div>
  </div>`;
  const anyExpiring=t.pages.some(p=>p.hasToken&&p.expiresAt!=null&&p.expiresAt!==0);
  const anyMissing=t.pages.some(p=>!p.hasToken);
