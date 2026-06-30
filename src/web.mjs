@@ -18,6 +18,15 @@ import { dataPath, CRED_FILE, QR_FILE, saveToken, removeToken } from "./paths.mj
 const ROUTES_FILE = process.env.ROUTES_FILE || "config/routes.json";
 const PAGE_FILE = path.resolve("public/index.html");
 
+/** Thay khối chân bài cũ (ở cuối caption) bằng chân bài mới. */
+function reapplyFooter(caption, oldFooter, newFooter) {
+  let body = String(caption || "");
+  const oldF = String(oldFooter || "").trim();
+  if (oldF && body.trimEnd().endsWith(oldF)) body = body.trimEnd().slice(0, -oldF.length).trimEnd();
+  const nf = String(newFooter || "").trim();
+  return nf ? (body.trimEnd() + "\n\n" + nf) : body;
+}
+
 function channelsFor(d, route = {}) {
   // GBP chỉ là 1 kênh nếu route có business VÀ bài có ẢNH (Google Business không nhận video).
   const hasImages = Array.isArray(d.savedImages) && d.savedImages.length > 0;
@@ -226,6 +235,17 @@ export function startWeb(ctx = {}) {
       store.pushLog(`AI viết lại caption: ${d.routeLabel || d.id}`);
       res.json({ ok: true, caption: out });
     } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Tải lại chân bài: áp chân bài MỚI NHẤT của route vào caption (dùng khi đã đổi footer ở Nhóm→Trang).
+  app.post("/api/pending/:id/reload-footer", requireAuth, (req, res) => {
+    const d = store.getPending(req.params.id);
+    if (!d) return res.status(404).json({ error: "không thấy draft" });
+    const route = routeForThread(loadConfig(), d.threadId) || {};
+    const nf = String(route.captionFooter || "").trim();
+    const next = store.updatePending(d.id, { caption: reapplyFooter(d.caption, d.captionFooter, nf), captionFooter: nf });
+    store.pushLog(`Tải lại chân bài: ${d.routeLabel || d.id}`);
+    res.json(next);
   });
 
   app.post("/api/pending/:id/approve", requireAuth, async (req, res) => {
@@ -448,8 +468,19 @@ export function startWeb(ctx = {}) {
       if (!data || !Array.isArray(data.routes)) return res.status(400).json({ error: "định dạng sai" });
       fs.writeFileSync(ROUTES_FILE, JSON.stringify(data, null, 2));
       ctx.reloadConfig && ctx.reloadConfig();
-      store.pushLog("Đã cập nhật routes.json");
-      res.json({ ok: true });
+      // Đổi chân bài -> tự cập nhật vào các bài CHỜ DUYỆT của nhóm đó (chưa duyệt thì auto theo).
+      let updated = 0;
+      for (const r of data.routes) {
+        const nf = String(r.captionFooter || "").trim();
+        for (const d of store.listPending()) {
+          if (String(d.threadId) === String(r.threadId) && (d.captionFooter || "") !== nf) {
+            store.updatePending(d.id, { caption: reapplyFooter(d.caption, d.captionFooter, nf), captionFooter: nf });
+            updated++;
+          }
+        }
+      }
+      store.pushLog(`Đã cập nhật routes.json${updated ? ` (+ cập nhật chân bài ${updated} bài chờ duyệt)` : ""}`);
+      res.json({ ok: true, footerUpdated: updated });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 

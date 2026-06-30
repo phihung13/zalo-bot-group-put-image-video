@@ -671,6 +671,7 @@ async function renderDrafts(){const all=await api('/api/posts');const el=$('#dra
    <div class="compact-actions"><span class="muted">${doneCount}/${totalCount} kênh</span><button class="btn-ghost" onclick="openPostDetail('${d.id}')">${ic('ext',14)} Chi tiết</button></div>
    ${inPending?`<div class="fbpost-util">
     <button class="btn-quiet" onclick="toggleEdit('${d.id}')" aria-expanded="false">${ic('pencil',15)} Sửa</button>
+    <button class="btn-quiet" onclick="reloadFooter('${d.id}')" title="Áp chân bài / liên hệ mới nhất từ Nhóm → Trang">${ic('refresh',15)} Tải lại chân bài</button>
     <button class="btn-quiet danger" onclick="reject('${d.id}')">${ic('trash',15)} Từ chối</button>
    </div>`:`<div class="fbpost-util">
     <button class="btn-quiet danger" onclick="removePostedRecord('${d.id}')">${ic('trash',15)} Xóa khỏi danh sách</button>
@@ -686,6 +687,7 @@ async function renderDrafts(){const all=await api('/api/posts');const el=$('#dra
  }).join('')+'</div></div>';
 }
 function toggleEdit(id){const e=$('#edit_'+id);if(e)e.classList.toggle('hide')}
+async function reloadFooter(id){try{await api('/api/pending/'+id+'/reload-footer','POST');toast('Đã tải lại chân bài mới nhất');render()}catch(e){toast('Lỗi: '+e.message)}}
 async function aiRewrite(id){const ta=$('#cap_'+id);const m=$('#airw_'+id);if(!ta)return;
  if(m)m.innerHTML='<span class="spin"></span> AI đang viết lại…';
  try{const r=await api('/api/pending/'+id+'/rewrite','POST',{caption:ta.value});ta.value=r.caption;if(m)m.textContent='✓ Đã viết lại — xem lại rồi bấm Lưu sửa';}

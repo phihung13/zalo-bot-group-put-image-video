@@ -81,6 +81,7 @@ async function main() {
           videoUrls: (res.savedVideos || []).map((p) => "/output/" + path.relative(dataPath("output"), p).replace(/\\/g, "/")),
           imageCaptions: res.imageCaptions, videoCaptions: res.videoCaptions,
           comment: route.comment || "", published: route.published,
+          captionFooter: (route.captionFooter || "").trim(), // lưu để sau đổi chân bài thì cập nhật được
           caption: res.caption + (route.captionFooter ? "\n\n" + String(route.captionFooter).trim() : ""),
           droppedCount: res.droppedCount, createdAt: Date.now(), reason,
           approvals: {
