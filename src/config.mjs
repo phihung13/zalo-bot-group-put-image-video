@@ -7,6 +7,25 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_FILE = path.resolve(__dirname, "../config/routes.json");
 
+/**
+ * Lần đầu trên VPS (volume rỗng): chép routes.json MẪU (trong image) ra ROUTES_FILE.
+ * Nhờ vậy code biết sẵn ID Trang -> dán user token là derive được token Trang theo ID.
+ * KHÔNG đè nếu volume đã có route thật.
+ */
+export function seedRoutesIfMissing() {
+  const target = process.env.ROUTES_FILE;
+  if (!target || path.resolve(target) === path.resolve(DEFAULT_FILE)) return; // local: dùng thẳng file mẫu
+  try {
+    let cur = null;
+    try { cur = JSON.parse(fs.readFileSync(target, "utf8")); } catch {}
+    if (cur && Array.isArray(cur.routes) && cur.routes.length) return; // đã có cấu hình -> giữ nguyên
+    if (!fs.existsSync(DEFAULT_FILE)) return;
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(DEFAULT_FILE, target);
+    console.log(`[cfg] seed routes.json mẫu -> ${target} (biết sẵn ID Trang để lấy token)`);
+  } catch {}
+}
+
 export function loadConfig(file = process.env.ROUTES_FILE || DEFAULT_FILE) {
   let raw;
   try { raw = JSON.parse(fs.readFileSync(file, "utf8")); }

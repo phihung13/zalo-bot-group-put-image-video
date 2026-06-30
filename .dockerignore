@@ -9,7 +9,8 @@ output
 *.log
 zalo-creds.json
 qr.png
-config/routes.json
+# LƯU Ý: KHÔNG loại config/routes.json — image cần nó làm FILE MẪU để seed
+# (lần đầu trên VPS, biết sẵn ID Trang để derive token Trang theo ID).
 
 # Secret (đặt qua biến môi trường Coolify, KHÔNG đóng vào image)
 .env
