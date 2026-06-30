@@ -8,7 +8,8 @@ import { processBatch } from "../src/pipeline.mjs";
 import { postToPage } from "../src/facebook.mjs";
 import { loadConfig, routeForThread } from "../src/config.mjs";
 
-const GROUP = process.argv[2] || "204024737146120985";
+const GROUP = process.argv[2];
+if (!GROUP) { console.log("Cần truyền threadId nhóm Zalo: node scripts/recover.mjs <threadId>"); process.exit(1); }
 const WINDOW_MS = Number(process.env.RECOVER_WINDOW_MIN || 60) * 60 * 1000;
 const COUNT = Number(process.env.RECOVER_COUNT || 50);
 
