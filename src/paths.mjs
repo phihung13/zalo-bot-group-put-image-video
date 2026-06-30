@@ -28,6 +28,6 @@ export function saveToken(name, value) {
   let m = {};
   try { m = JSON.parse(fs.readFileSync(TOKENS_FILE, "utf8")); } catch {}
   m[name] = value;
-  try { fs.mkdirSync(path.dirname(TOKENS_FILE), { recursive: true }); fs.writeFileSync(TOKENS_FILE, JSON.stringify(m, null, 2)); } catch {}
+  try { fs.mkdirSync(path.dirname(TOKENS_FILE), { recursive: true }); fs.writeFileSync(TOKENS_FILE, JSON.stringify(m, null, 2), { encoding: "utf8" }); } catch {}
   process.env[name] = value;
 }

@@ -23,7 +23,14 @@ export function updatePending(id, patch) {
 
 // ===== Lịch sử đã đăng =====
 export const listPosted = () => read("posted.json", []);
-export function addPosted(d) { const a = listPosted(); a.unshift(d); write("posted.json", a.slice(0, 500)); }
+export function addPosted(d) {
+  const a = listPosted();
+  const i = a.findIndex((x) => x.id === d.id);
+  if (i >= 0) a[i] = { ...a[i], ...d };
+  else a.unshift(d);
+  write("posted.json", a.slice(0, 500));
+  return i >= 0 ? a[i] : d;
+}
 export const getPosted = (id) => listPosted().find((d) => d.id === id);
 export function updatePosted(id, patch) { const a = listPosted(); const i = a.findIndex((d) => d.id === id); if (i >= 0) { a[i] = { ...a[i], ...patch }; write("posted.json", a); return a[i]; } return null; }
 export function removePosted(id) { write("posted.json", listPosted().filter((d) => d.id !== id)); }

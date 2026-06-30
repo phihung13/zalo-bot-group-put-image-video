@@ -1,9 +1,14 @@
 node_modules/
+
+# Secret & phiên đăng nhập (KHÔNG commit)
 .env
+.env.local
 zalo-creds.json
 qr.png
-*.log
+
+# Dữ liệu & output ghi-runtime
+data/
+output/
 tmp/
 media/
-output/
-data/
+*.log
