@@ -976,9 +976,9 @@ async function renderToken(){const t=await api('/api/token');const el=$('#token'
  el.innerHTML=guide+`<div class="card"><div class="card-head"><b>Trạng thái token theo Trang</b><span class="muted" style="font-size:var(--fs-xs)">${t.pages.length} Trang</span></div>
   <p class="muted" style="margin:0 0 3px">Ứng dụng: <b style="word-break:break-all">${t.appId?esc(t.appId):''}</b>${t.appId?'':'<span class="pill off">chưa có App ID</span>'}</p>
   <p class="muted" style="margin:0 0 10px">Khoá bí mật: ${t.hasSecret?'<span class="pill on">đã cấu hình</span>':'<span class="pill off">thiếu trong .env</span>'}</p>
-  <div class="table-wrap"><table class="tbl-token"><thead><tr><th>Trang</th><th>ID Trang</th><th>Token</th><th>Hết hạn</th></tr></thead><tbody>${t.pages.length?t.pages.map(p=>`<tr><td>${esc(p.page)}</td><td class="muted">${esc(p.fanpageId)}</td><td>${p.hasToken?'<span class="pill on">đã có</span>':'<span class="pill off">thiếu</span>'}</td><td>${expiryText(p.expiresAt)}</td></tr>`).join(''):'<tr><td colspan="4" class="muted">Chưa có Trang nào. Dán user token bên dưới để hệ thống tự tìm.</td></tr>'}</tbody></table></div>
+  <div class="table-wrap"><table class="tbl-token"><thead><tr><th>Trang</th><th>ID Trang</th><th>Token</th><th>Hết hạn</th><th></th></tr></thead><tbody>${t.pages.length?t.pages.map(p=>`<tr><td>${esc(p.page)}</td><td class="muted">${esc(p.fanpageId)}</td><td>${p.hasToken?'<span class="pill on">đã có</span>':'<span class="pill off">thiếu</span>'}</td><td>${expiryText(p.expiresAt)}</td><td style="text-align:right"><button class="btn-quiet danger" title="Xóa token Trang này" onclick="deletePageToken('${esc(p.fanpageId)}','${esc((p.page||'').replace(/'/g,'’'))}')">${ic('trash',14)}</button></td></tr>`).join(''):'<tr><td colspan="5" class="muted">Chưa có Trang nào. Dán user token bên dưới để hệ thống tự tìm.</td></tr>'}</tbody></table></div>
   <p class="field-help" style="margin-top:8px">${anyMissing?ic('alert',14)+' Có Trang chưa có token — cấp ngay bên dưới. ':''}${anyExpiring?ic('alert',14)+' Có token sắp hết hạn — nên cấp lại. ':''}${(!anyMissing&&!anyExpiring&&t.pages.length)?ic('check',14)+' Mọi token đều ổn (vĩnh viễn) — chưa cần làm gì.':''}</p></div>
-  <div class="card"><div class="card-head"><b>Cấp / làm mới token</b></div>
+  <div class="card"><div class="card-head"><b>Thêm / làm mới token</b></div>
   <p class="muted" style="margin:0 0 10px">Chỉ cần làm khi cột <b>Hết hạn</b> báo <i>thiếu / sắp hết / đã hết</i>. Dán token vào ô dưới rồi bấm <b>Cấp</b> — token <b>vĩnh viễn</b> thì khỏi đụng tới.</p>
   <textarea id="utok" aria-label="Dán User Token Facebook" placeholder="Dán User Token (hoặc Page Token) vào đây..."></textarea>
   <textarea id="pageids" aria-label="ID hoặc link Trang" placeholder="(Tuỳ chọn) ID hoặc link Trang — mỗi dòng 1 — dùng khi danh sách Trang để trống (Trang trong Business Manager). VD: 106075121755248  hoặc  facebook.com/TenTrang" style="margin-top:8px;min-height:58px"></textarea>
@@ -1004,6 +1004,9 @@ function expiryText(e){
  const days=Math.round((e-now)/86400);
  return days<14?`<span class="pill off">${d} (${days} ngày)</span>`:`<span class="muted">${d}</span>`;
 }
+async function deletePageToken(fid,name){
+ if(!await confirmModal('Xóa token Trang?','Trang "'+name+'" sẽ bị gỡ token + khỏi danh sách. Bài đang dùng Trang này sẽ không đăng được tới khi cấp lại.','Xóa token','btn-danger'))return;
+ try{await api('/api/token/delete','POST',{fanpageId:fid});toast('Đã xóa token Trang');window._fbpages=undefined;renderToken()}catch(e){toast('Lỗi: '+e.message)}}
 async function refreshTok(){const el=$('#tokmsg');el.textContent='Đang tìm các Trang…';
  try{const r=await fetch('/api/token/refresh',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({userToken:$('#utok').value.trim(),pageRefs:($('#pageids')&&$('#pageids').value)||''})});
   const j=await r.json().catch(()=>({}));
