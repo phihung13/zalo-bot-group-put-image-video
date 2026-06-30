@@ -98,7 +98,8 @@ export function startWeb(ctx = {}) {
   app.use("/output", requireAuth, express.static(dataPath("output")));
 
   // noVNC: nhúng trình duyệt đăng nhập Google Business (auth-gated; WebSocket gate ở 'upgrade' bên dưới)
-  const vncProxy = createProxyMiddleware({ target: `http://127.0.0.1:${NOVNC_PORT}`, changeOrigin: true, ws: true, pathRewrite: { "^/vnc": "" } });
+  // app.use("/vnc") đã tự cắt tiền tố /vnc khỏi req.url -> KHÔNG pathRewrite (kẻo cắt 2 lần -> /vnc.html thành .html).
+  const vncProxy = createProxyMiddleware({ target: `http://127.0.0.1:${NOVNC_PORT}`, changeOrigin: true, ws: true });
   app.use("/vnc", requireAuth, vncProxy);
 
   // ===== Trạng thái =====
