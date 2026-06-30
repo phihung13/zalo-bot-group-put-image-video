@@ -935,6 +935,9 @@ function paintRoutes(){const data=window._routes||{routes:[]};const list=Array.i
     <div class="fieldset" style="margin-top:10px"><label for="r_foot_${i}">Chân bài cố định (hotline + địa chỉ) ${r.captionFooter?('· <span class="pill on">'+r.captionFooter.length+' ký tự</span>'):''}</label>
      <textarea id="r_foot_${i}" rows="5" oninput="_routes.routes[${i}].captionFooter=this.value" placeholder="Dán nguyên khối liên hệ (hotline, địa chỉ, hashtag, Google Maps...).">${esc(r.captionFooter||'')}</textarea>
      <p class="field-help">Hệ thống tự chèn nguyên văn xuống cuối mỗi bài.</p></div>
+    <div class="fieldset" style="margin-top:10px"><label for="r_style_${i}">Bài mẫu giọng văn (tuỳ chọn) ${r.styleSample?('· <span class="pill on">'+r.styleSample.length+' ký tự</span>'):''}</label>
+     <textarea id="r_style_${i}" rows="5" oninput="_routes.routes[${i}].styleSample=this.value" placeholder="Dán 1 bài đã đăng hay của Trang này để AI viết theo đúng giọng. Để trống = giọng mặc định.">${esc(r.styleSample||'')}</textarea>
+     <p class="field-help">AI tham khảo để viết caption MỚI cùng phong cách Trang.</p></div>
    </div>
    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px"><button class="btn-quiet" style="color:var(--muted);font-size:var(--fs-sm)" onclick="deleteRoute(event,${i})">${ic('trash',14)} Xoá nhóm này</button></div>
    </div>
@@ -968,7 +971,7 @@ async function renderToken(){const t=await api('/api/token');const el=$('#token'
  const appCard=`<div class="card"><div class="card-head"><b>Ứng dụng Facebook</b><span class="pill ${appOk?'on':'off'}">${appOk?'đã cấu hình':'chưa cấu hình'}</span></div>
   <p class="muted" style="margin:0 0 10px;font-size:var(--fs-sm)">Mở trang ứng dụng → <b>Cài đặt → Cơ bản</b> để lấy App ID + Khoá bí mật.</p>
   <div class="row" style="gap:8px;flex-wrap:wrap">
-   <div class="fieldset" style="flex:1;min-width:150px;margin:0"><label for="fbAppId">App ID</label><input id="fbAppId" value="${t.appId?esc(t.appId):''}" placeholder="VD: 1051896344183668"></div>
+   <div class="fieldset" style="flex:1;min-width:150px;margin:0"><label for="fbAppId">App ID</label><input id="fbAppId" value="${t.appId?esc(t.appId):''}" placeholder="VD: 1234567890"></div>
    <div class="fieldset" style="flex:1;min-width:150px;margin:0"><label for="fbAppSecret">App Secret</label><input id="fbAppSecret" type="password" autocomplete="off" placeholder="${t.hasSecret?'•••• đã có (để trống = giữ)':'Khoá bí mật'}"></div>
   </div>
   <div class="row" style="margin-top:10px;gap:8px"><button class="btn-primary" onclick="saveFbApp()">Lưu</button><a class="btn-ghost" href="https://developers.facebook.com/apps" target="_blank" rel="noopener">${ic('ext',14)} Mở Facebook Developers</a>${appOk?`<button class="btn-quiet danger" onclick="clearFbApp()">${ic('trash',14)} Xóa cấu hình</button>`:''}</div>
@@ -976,7 +979,7 @@ async function renderToken(){const t=await api('/api/token');const el=$('#token'
  const anyExpiring=t.pages.some(p=>p.hasToken&&p.expiresAt!=null&&p.expiresAt!==0);
  const anyMissing=t.pages.some(p=>!p.hasToken);
  el.innerHTML=appCard+`<div class="card"><div class="card-head"><b>Trạng thái token theo Trang</b><span class="muted" style="font-size:var(--fs-xs)">${t.pages.length} Trang</span></div>
-  <div class="table-wrap"><table class="tbl-token"><thead><tr><th>Trang</th><th>ID Trang</th><th>Token</th><th>Hết hạn</th><th></th></tr></thead><tbody>${t.pages.length?t.pages.map(p=>`<tr><td>${esc(p.page)}</td><td class="muted">${esc(p.fanpageId)}</td><td>${p.hasToken?'<span class="pill on">đã có</span>':'<span class="pill off">thiếu</span>'}</td><td>${expiryText(p.expiresAt)}</td><td style="text-align:right">${p.hasToken?`<button class="btn-quiet danger" title="Xóa token" onclick="deletePageToken('${esc(p.fanpageId)}','${esc((p.page||'').replace(/'/g,'’'))}')">${ic('trash',14)}</button>`:''}</td></tr>`).join(''):'<tr><td colspan="5" class="muted">Chưa có Trang nào — dán user token bên dưới.</td></tr>'}</tbody></table></div>
+  <div class="table-wrap"><table class="tbl-token"><thead><tr><th>Trang</th><th>ID Trang</th><th>Token</th><th>Hết hạn</th><th></th></tr></thead><tbody>${t.pages.length?t.pages.map(p=>`<tr><td>${esc(p.page)}</td><td class="muted">${esc(p.fanpageId)}</td><td>${p.hasToken?'<span class="pill on">đã có</span>':'<span class="pill off">thiếu</span>'}</td><td>${expiryText(p.expiresAt)}</td><td style="text-align:right"><button class="btn-quiet danger" title="Xóa Trang khỏi danh sách" onclick="deletePageToken('${esc(p.fanpageId)}','${esc((p.page||'').replace(/'/g,'’'))}')">${ic('trash',14)}</button></td></tr>`).join(''):'<tr><td colspan="5" class="muted">Chưa có Trang nào — dán user token bên dưới.</td></tr>'}</tbody></table></div>
   <p class="field-help" style="margin-top:8px">${anyMissing?ic('alert',14)+' Có Trang chưa có token — cấp ngay bên dưới. ':''}${anyExpiring?ic('alert',14)+' Có token sắp hết hạn — nên cấp lại. ':''}${(!anyMissing&&!anyExpiring&&t.pages.length)?ic('check',14)+' Mọi token đều ổn (vĩnh viễn) — chưa cần làm gì.':''}</p></div>
   <div class="card"><div class="card-head"><b>Thêm / làm mới token</b></div>
   <textarea id="utok" aria-label="Dán User Token Facebook" placeholder="Dán User Token Facebook vào đây…"></textarea>
@@ -1008,8 +1011,8 @@ async function saveFbApp(){const id=$('#fbAppId').value.trim();const sec=$('#fbA
 async function clearFbApp(){if(!await confirmModal('Xóa cấu hình App Facebook?','App ID + Secret sẽ bị xóa, hệ thống về trống. Token các Trang vẫn giữ.','Xóa','btn-danger'))return;
  try{await api('/api/fb/app','POST',{clear:true});toast('Đã xóa cấu hình App');renderToken()}catch(e){toast('Lỗi: '+e.message)}}
 async function deletePageToken(fid,name){
- if(!await confirmModal('Xóa token Trang?','Trang "'+name+'" sẽ bị gỡ token + khỏi danh sách. Bài đang dùng Trang này sẽ không đăng được tới khi cấp lại.','Xóa token','btn-danger'))return;
- try{await api('/api/token/delete','POST',{fanpageId:fid});toast('Đã xóa token Trang');window._fbpages=undefined;renderToken()}catch(e){toast('Lỗi: '+e.message)}}
+ if(!await confirmModal('Xóa Trang khỏi danh sách?','Trang "'+name+'" sẽ bị gỡ token + xóa khỏi danh sách. Nếu Trang còn nằm trong route thì sẽ hiện lại (xóa route ở tab Nhóm → Trang).','Xóa','btn-danger'))return;
+ try{await api('/api/token/delete','POST',{fanpageId:fid});toast('Đã xóa Trang');window._fbpages=undefined;renderToken()}catch(e){toast('Lỗi: '+e.message)}}
 async function refreshTok(){const el=$('#tokmsg');el.textContent='Đang tìm các Trang…';
  try{const r=await fetch('/api/token/refresh',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({userToken:$('#utok').value.trim(),pageRefs:($('#pageids')&&$('#pageids').value)||''})});
   const j=await r.json().catch(()=>({}));

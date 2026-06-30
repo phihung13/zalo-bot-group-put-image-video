@@ -12,7 +12,6 @@ import { publishFacebookDraft, publishGbpDraft } from "./publish.mjs";
 import { startWeb } from "./web.mjs";
 import * as store from "./store.mjs";
 import * as live from "./live.mjs";
-import { styleFor } from "./styles.mjs";
 import { CRED_FILE, QR_FILE, dataPath, loadTokensIntoEnv } from "./paths.mjs";
 
 loadTokensIntoEnv(); // nạp token Trang FB đã lưu (data/tokens.json) vào process.env trước khi chạy
@@ -67,7 +66,7 @@ async function main() {
         // CHUẨN BỊ bài (gom -> lọc -> AI chọn -> format -> caption). KHÔNG đăng ở đây.
         const res = await processBatch(batch, reason, {
           log: (m) => console.log("  [pipeline]", m), perItemCaption: true,
-          styleGuide: styleFor(route.fanpageId),
+          styleGuide: route.styleSample || "",
           onStage: (stage, extra) => live.processing(batch.threadId, stage, extra),
         });
         if (!res.savedImages.length && !res.savedVideos.length) { live.done(batch.threadId, null); return; }

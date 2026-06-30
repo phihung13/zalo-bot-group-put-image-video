@@ -37,6 +37,7 @@ export function loadConfig(file = process.env.ROUTES_FILE || DEFAULT_FILE) {
       enabled: r.enabled !== false, // false = tạm tắt nhóm này
       comment: r.comment || "", // comment đầu tự động (SĐT/địa chỉ...)
       captionFooter: r.captionFooter || "", // chân bài cố định (hotline/địa chỉ) chèn cuối caption
+      styleSample: r.styleSample || "", // bài mẫu giọng văn của Trang (AI học theo) — nhập trong dashboard
       gbpLocationId: r.gbpLocationId || "", // Google Business Profile location ID; rỗng = không đăng GBP
     });
   }
