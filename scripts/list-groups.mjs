@@ -1,5 +1,5 @@
 // list-groups.mjs — liệt kê các nhóm Zalo (id + tên) để điền routes.json.
-// Chạy khi service ĐANG TẮT (tránh tranh phiên). node list-groups.mjs
+// Chạy khi service ĐANG TẮT (tránh tranh phiên), từ thư mục gốc dự án: node scripts/list-groups.mjs
 import { Zalo } from "zca-js";
 import fs from "node:fs";
 

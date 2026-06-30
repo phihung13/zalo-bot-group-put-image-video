@@ -8,7 +8,7 @@ import { extractEvent } from "./extract.mjs";
 import { Batcher, MemoryStore } from "./batcher.mjs";
 import { loadConfig, routeForThread } from "./config.mjs";
 import { processBatch } from "./pipeline.mjs";
-import { publishDraft } from "./publish.mjs";
+import { publishFacebookDraft, publishGbpDraft } from "./publish.mjs";
 import { startWeb } from "./web.mjs";
 import * as store from "./store.mjs";
 import * as live from "./live.mjs";
@@ -73,6 +73,7 @@ async function main() {
         const draft = {
           id: path.basename(res.dir), threadId: batch.threadId, routeLabel: route.label,
           fanpageId: route.fanpageId, fanpageTokenEnv: route.fanpageTokenEnv,
+          gbpLocationId: route.gbpLocationId || "",
           dir: res.dir, savedImages: res.savedImages, savedVideos: res.savedVideos,
           imageUrls: res.savedImages.map((p) => "/output/" + path.relative(dataPath("output"), p).replace(/\\/g, "/")),
           videoUrls: (res.savedVideos || []).map((p) => "/output/" + path.relative(dataPath("output"), p).replace(/\\/g, "/")),
@@ -80,17 +81,54 @@ async function main() {
           comment: route.comment || "", published: route.published,
           caption: res.caption + (route.captionFooter ? "\n\n" + String(route.captionFooter).trim() : ""),
           droppedCount: res.droppedCount, createdAt: Date.now(), reason,
+          approvals: {
+            facebook: { status: "pending" },
+            ...(route.gbpLocationId ? { gbp: { status: "pending" } } : {}),
+          },
         };
-        if (store.getSettings().approval) {
-          store.addPending(draft);
+        const approvals = { ...draft.approvals };
+        let published = draft.published;
+        let links = [];
+        let autoPosted = false;
+
+        if (route.facebookAutoPublish) {
+          try {
+            const r = await publishFacebookDraft(draft, route, { published: true, comment: route.comment, log: (m) => console.log("  [fb]", m) });
+            links = r.links || [];
+            published = true;
+            approvals.facebook = { status: "posted", published: true, links, at: Date.now(), auto: true };
+            autoPosted = true;
+            store.pushLog(`FACEBOOK TỰ ĐĂNG CÔNG KHAI: ${route.label} → ${links.join(" ")}`);
+          } catch (e) {
+            console.error("💥 tự đăng Facebook lỗi:", e?.message || e);
+            store.pushLog("Tự đăng Facebook lỗi: " + (e?.message || e));
+          }
+        }
+
+        if (route.gbpLocationId && route.gbpAutoPublish) {
+          try {
+            const r = await publishGbpDraft(draft, route, { log: (m) => console.log("  [gbp]", m) });
+            approvals.gbp = { status: "posted", at: Date.now(), links: r.links || [], auto: true };
+            autoPosted = true;
+            store.pushLog(`GOOGLE BUSINESS TỰ ĐĂNG: ${route.label}`);
+          } catch (e) {
+            console.error("💥 tự đăng GBP lỗi:", e?.message || e);
+            store.pushLog("Tự đăng Google Business lỗi: " + (e?.message || e));
+          }
+        }
+
+        const channels = ["facebook", ...(route.gbpLocationId ? ["gbp"] : [])];
+        const needsReview = channels.some((ch) => approvals[ch]?.status !== "posted");
+        const finalDraft = { ...draft, approvals, published, links };
+        if (autoPosted) store.addPosted({ ...finalDraft, postedAt: Date.now(), partial: needsReview });
+        if (needsReview) {
+          store.addPending(finalDraft);
           live.done(batch.threadId, draft.id);
           store.pushLog(`Bài mới CHỜ DUYỆT: ${route.label} (${res.savedImages.length} ảnh)`);
-          console.log(`  [pipeline] -> HÀNG CHỜ DUYỆT (mở dashboard để duyệt)`);
+          console.log(`  [pipeline] -> HÀNG CHỜ DUYỆT (còn kênh cần duyệt)`);
         } else {
           live.done(batch.threadId, null);
-          const r = await publishDraft(draft, route, { published: route.published, comment: route.comment, log: (m) => console.log("  [fb]", m) });
-          store.addPosted({ ...draft, postedAt: Date.now(), published: route.published, links: r.links });
-          store.pushLog(`TỰ ĐĂNG: ${route.label} → ${r.links.join(" ")}`);
+          if (!autoPosted) store.pushLog(`Bài đã xử lý nhưng không có kênh tự đăng: ${route.label}`);
         }
       } catch (e) { console.error("💥 xử lý batch lỗi:", e?.message || e); store.pushLog("Xử lý batch lỗi: " + (e?.message || e)); }
     },
@@ -157,10 +195,33 @@ async function main() {
     } finally { status.relogging = false; }
   }
 
-  startWeb({ status, reloadConfig, getZalo: () => currentApi, relogin: reloginZalo, getLive: () => live.snapshot(),
+  async function reconnectZalo() {
+    if (status.relogging) return { already: true };
+    status.relogging = true; status.zaloConnected = false; status.ownId = null;
+    try { currentApi?.listener?.stop?.(); } catch {}
+    try { fs.rmSync(QR_FILE, { force: true }); } catch {}
+    store.pushLog("Kết nối lại Zalo: thử dùng phiên đã lưu, nếu hỏng sẽ hiện QR.");
+    console.log("♻️  Kết nối lại Zalo: thử phiên đã lưu...");
+    try {
+      const api = await login();
+      await setApi(api);
+      store.pushLog("Đã kết nối lại Zalo.");
+      console.log("✅ Kết nối lại Zalo xong.");
+    } catch (e) {
+      console.error("kết nối lại Zalo lỗi:", e?.message || e);
+      store.pushLog("Kết nối lại Zalo lỗi: " + (e?.message || e));
+    } finally { status.relogging = false; }
+  }
+
+  startWeb({ status, reloadConfig, getZalo: () => currentApi, relogin: reloginZalo, reconnect: reconnectZalo, getLive: () => live.snapshot(),
     closeNow: (tid) => batcher.close(String(tid), "manual") }); // web dashboard
 
   console.log(`📋 ${cfg.byThread.size} route. Theo dõi:`, [...cfg.byThread.keys()]);
+
+  if (process.env.WEB_ONLY === "1") {
+    console.log("\n🌐 WEB_ONLY=1: chỉ mở dashboard, không kết nối Zalo listener.");
+    return;
+  }
 
   const api = await login();
   await setApi(api);

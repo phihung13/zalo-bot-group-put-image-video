@@ -1,4 +1,4 @@
-# Không đưa vào image: phụ thuộc, dữ liệu runtime, secret, ghi chú
+# Không đưa vào image: phụ thuộc, dữ liệu runtime, secret, công cụ local
 node_modules
 .git
 .gitignore
@@ -14,16 +14,14 @@ config/routes.json
 # Secret (đặt qua biến môi trường Coolify, KHÔNG đóng vào image)
 .env
 .env.*
+!.env.example
 
-# Công cụ chạy local / tài liệu / file tạm
+# Công cụ chạy local / tài liệu / artefact dev
 start.bat
 test
-DEPLOY.md
-PRODUCT.md
-DESIGN.md
+scripts
+docs
 .impeccable
+.agents
 .claude
 .tmp_*
-recover.mjs
-list-groups.mjs
-Facebook

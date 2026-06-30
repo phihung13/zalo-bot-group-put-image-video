@@ -4,15 +4,61 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import * as store from "./store.mjs";
-import { publishDraft } from "./publish.mjs";
+import { publishFacebookDraft, publishGbpDraft } from "./publish.mjs";
 import { publishPost, editPost, deletePost, postIdFromLink } from "./facebook.mjs";
 import { exchangeLongLivedUser, listUserPages, debugToken, setEnvVar, derivePageToken } from "./fbtoken.mjs";
 import { loadPages, savePages, envNameFor } from "./pages.mjs";
+import { beginGBPLogin, cancelGBPLogin, finishGBPLogin, gbpLoginStatus, inspectGbpSession, loadGbpBusinesses, saveGbpBusinesses } from "./gbp.mjs";
 import { loadConfig, routeForThread } from "./config.mjs";
-import { dataPath, CRED_FILE, QR_FILE } from "./paths.mjs";
+import { dataPath, CRED_FILE, QR_FILE, saveToken } from "./paths.mjs";
 
 const ROUTES_FILE = process.env.ROUTES_FILE || "config/routes.json";
 const PAGE_FILE = path.resolve("public/index.html");
+
+function channelsFor(d, route = {}) {
+  const gbpLocationId = d.gbpLocationId || route.gbpLocationId || "";
+  return ["facebook", ...(gbpLocationId ? ["gbp"] : [])];
+}
+
+function approvalsOf(d, route = {}) {
+  const cur = d.approvals || {};
+  const approvals = { ...cur };
+  for (const ch of channelsFor(d, route)) {
+    approvals[ch] = { status: "pending", ...(cur[ch] || {}) };
+  }
+  return approvals;
+}
+
+function isPendingDone(d, route = {}) {
+  const approvals = approvalsOf(d, route);
+  return channelsFor(d, route).every((ch) => {
+    const approval = approvals[ch] || {};
+    if (approval.status === "pending") return false;
+    if (ch === "facebook" && approval.status === "posted" && approval.published === false) return false;
+    return true;
+  });
+}
+
+function completePendingIfDone(d, route = {}) {
+  if (!isPendingDone(d, route)) return false;
+  store.removePending(d.id);
+  store.addPosted({ ...d, approvals: approvalsOf(d, route), postedAt: Date.now() });
+  return true;
+}
+
+function rememberProcessedChannel(d, route = {}, patch = {}) {
+  const merged = { ...d, ...(patch || {}) };
+  const approvals = approvalsOf(merged, route);
+  if (!channelsFor(merged, route).some((ch) => approvals[ch]?.status === "posted")) return;
+  const existing = store.getPosted(merged.id) || {};
+  store.addPosted({
+    ...existing,
+    ...merged,
+    approvals,
+    postedAt: existing.postedAt || Date.now(),
+    partial: !isPendingDone({ ...merged, approvals }, route),
+  });
+}
 
 /**
  * @param {object} ctx { status: {zaloConnected}, reloadConfig: ()=>void }
@@ -59,13 +105,79 @@ export function startWeb(ctx = {}) {
       pendingCount: store.listPending().length,
       routes: [...cfg.byThread.values()].map((r) => ({
         threadId: r.threadId, label: r.label, fanpageId: r.fanpageId, fanpageTokenEnv: r.fanpageTokenEnv,
-        hasToken: !!r.fanpageToken, published: r.published, enabled: r.enabled, comment: r.comment,
+        hasToken: !!r.fanpageToken, published: r.published, facebookAutoPublish: !!r.facebookAutoPublish,
+        gbpAutoPublish: !!r.gbpAutoPublish, enabled: r.enabled, comment: r.comment,
+        gbpLocationId: r.gbpLocationId,
       })),
     });
   });
 
   // ===== Hàng chờ duyệt =====
-  app.get("/api/pending", requireAuth, (req, res) => res.json(store.listPending()));
+  app.get("/api/pending", requireAuth, (req, res) => {
+    const cfg = loadConfig();
+    res.json(store.listPending().map((d) => {
+      const route = routeForThread(cfg, d.threadId) || {};
+      return { ...d, gbpLocationId: d.gbpLocationId || route.gbpLocationId || "", approvals: approvalsOf(d, route) };
+    }));
+  });
+
+  app.get("/api/posts", requireAuth, (req, res) => {
+    const cfg = loadConfig();
+    const pending = store.listPending();
+    const pendingIds = new Set(pending.map((d) => d.id));
+    const byId = new Map();
+
+    for (const d of store.listPosted()) {
+      const route = routeForThread(cfg, d.threadId) || {};
+      const approvals = approvalsOf(d, route);
+      byId.set(d.id, {
+        ...d,
+        gbpLocationId: d.gbpLocationId || route.gbpLocationId || "",
+        approvals,
+        queueStatus: "done",
+        inPending: false,
+        sortAt: d.postedAt || d.createdAt || 0,
+      });
+    }
+
+    for (const d of pending) {
+      const route = routeForThread(cfg, d.threadId) || {};
+      const existing = byId.get(d.id) || {};
+      const approvals = approvalsOf(d, route);
+      byId.set(d.id, {
+        ...existing,
+        ...d,
+        gbpLocationId: d.gbpLocationId || route.gbpLocationId || "",
+        approvals,
+        postedAt: existing.postedAt,
+        partial: !!existing.id,
+        queueStatus: "pending",
+        inPending: true,
+        sortAt: Math.max(d.createdAt || 0, existing.postedAt || 0),
+      });
+    }
+
+    const posts = [...byId.values()].map((d) => {
+      const route = routeForThread(cfg, d.threadId) || {};
+      const approvals = approvalsOf(d, route);
+      const channels = channelsFor(d, route);
+      const needsFacebookPublic = approvals.facebook?.status === "posted" && approvals.facebook?.published === false;
+      const pendingChannels = channels.filter((ch) => approvals[ch]?.status === "pending" || (ch === "facebook" && needsFacebookPublic));
+      const postedChannels = channels.filter((ch) => approvals[ch]?.status === "posted" && !(ch === "facebook" && approvals[ch]?.published === false));
+      return {
+        ...d,
+        approvals,
+        channels,
+        pendingChannels,
+        postedChannels,
+        needsFacebookPublic,
+        inPending: pendingIds.has(d.id),
+        queueStatus: pendingIds.has(d.id) || needsFacebookPublic ? "pending" : "done",
+      };
+    });
+
+    res.json(posts.sort((a, b) => (b.sortAt || b.postedAt || b.createdAt || 0) - (a.sortAt || a.postedAt || a.createdAt || 0)).slice(0, 160));
+  });
 
   app.post("/api/pending/:id/save", requireAuth, (req, res) => {
     const { caption, imageCaptions, removedIndexes } = req.body || {};
@@ -99,12 +211,48 @@ export function startWeb(ctx = {}) {
     const route = routeForThread(cfg, d.threadId) || { fanpageId: d.fanpageId, fanpageToken: process.env[d.fanpageTokenEnv], comment: "" };
     if (!route.fanpageToken) return res.status(400).json({ error: "Page chưa có token (vào tab Token để cấp)" });
     try {
-      const r = await publishDraft(d, route, { published, comment: route.comment, log: store.pushLog });
-      store.removePending(d.id);
-      store.addPosted({ ...d, postedAt: Date.now(), published, links: r.links });
-      store.pushLog(`ĐÃ ĐĂNG ${published ? "công khai" : "nháp"}: ${d.routeLabel} → ${r.links.join(" ")}`);
-      res.json({ ok: true, links: r.links });
+      const r = await publishFacebookDraft(d, route, { published, comment: route.comment, log: store.pushLog });
+      const approvals = approvalsOf(d, route);
+      approvals.facebook = { status: "posted", published, links: r.links, at: Date.now() };
+      const next = store.updatePending(d.id, { approvals, published, links: r.links });
+      rememberProcessedChannel(next || { ...d, approvals, published, links: r.links }, route, { approvals, published, links: r.links });
+      const done = completePendingIfDone(next || { ...d, approvals, published, links: r.links }, route);
+      store.pushLog(`FACEBOOK ĐÃ ${published ? "ĐĂNG CÔNG KHAI" : "LƯU NHÁP"}: ${d.routeLabel} → ${r.links.join(" ")}`);
+      res.json({ ok: true, target: "facebook", done, links: r.links });
     } catch (e) { store.pushLog("Đăng lỗi: " + e.message); res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/pending/:id/approve/gbp", requireAuth, async (req, res) => {
+    const d = store.getPending(req.params.id);
+    if (!d) return res.status(404).json({ error: "không thấy draft" });
+    const cfg = loadConfig();
+    const route = routeForThread(cfg, d.threadId) || { gbpLocationId: d.gbpLocationId };
+    if (!(d.gbpLocationId || route.gbpLocationId)) return res.status(400).json({ error: "Nhóm này chưa có Google Business Profile Location ID" });
+    try {
+      const r = await publishGbpDraft({ ...d, gbpLocationId: d.gbpLocationId || route.gbpLocationId }, { ...route, gbpLocationId: d.gbpLocationId || route.gbpLocationId }, { log: store.pushLog });
+      const approvals = approvalsOf(d, route);
+      approvals.gbp = { status: "posted", at: Date.now(), links: r.links || [] };
+      const next = store.updatePending(d.id, { approvals });
+      rememberProcessedChannel(next || { ...d, approvals }, route, { approvals });
+      const done = completePendingIfDone(next || { ...d, approvals }, route);
+      store.pushLog(`GOOGLE BUSINESS ĐÃ ĐĂNG: ${d.routeLabel || d.id}`);
+      res.json({ ok: true, target: "gbp", done });
+    } catch (e) { store.pushLog("Google Business đăng lỗi: " + e.message); res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/pending/:id/reject/:target", requireAuth, (req, res) => {
+    const d = store.getPending(req.params.id);
+    if (!d) return res.status(404).json({ error: "không thấy draft" });
+    const target = req.params.target === "gbp" ? "gbp" : "facebook";
+    const cfg = loadConfig();
+    const route = routeForThread(cfg, d.threadId) || {};
+    const approvals = approvalsOf(d, route);
+    if (!approvals[target]) return res.status(400).json({ error: "Kênh này không có trong bài chờ duyệt" });
+    approvals[target] = { ...approvals[target], status: "rejected", at: Date.now() };
+    const next = store.updatePending(d.id, { approvals });
+    const done = completePendingIfDone(next || { ...d, approvals }, route);
+    store.pushLog(`Đã bỏ kênh ${target === "gbp" ? "Google Business" : "Facebook"}: ${d.routeLabel || d.id}`);
+    res.json({ ok: true, target, done });
   });
 
   app.post("/api/pending/:id/reject", requireAuth, (req, res) => {
@@ -114,7 +262,22 @@ export function startWeb(ctx = {}) {
   });
 
   // ===== Lịch sử =====
-  app.get("/api/posted", requireAuth, (req, res) => res.json(store.listPosted().slice(0, 100)));
+  app.get("/api/posted", requireAuth, (req, res) => {
+    const cfg = loadConfig();
+    const posted = store.listPosted();
+    const seen = new Set(posted.map((d) => d.id));
+    const partials = store.listPending()
+      .map((d) => {
+        const route = routeForThread(cfg, d.threadId) || {};
+        const approvals = approvalsOf(d, route);
+        const hasPosted = channelsFor(d, route).some((ch) => approvals[ch]?.status === "posted");
+        if (!hasPosted || seen.has(d.id)) return null;
+        const at = Math.max(...Object.values(approvals).map((x) => x?.at || 0), d.createdAt || 0);
+        return { ...d, approvals, postedAt: at || Date.now(), partial: true };
+      })
+      .filter(Boolean);
+    res.json([...partials, ...posted].sort((a, b) => (b.postedAt || 0) - (a.postedAt || 0)).slice(0, 100));
+  });
 
   // Token cho 1 bài đã đăng (theo biến .env hoặc theo fanpageId trong pages store)
   const tokenForPosted = (item) => {
@@ -123,7 +286,38 @@ export function startWeb(ctx = {}) {
     if (meta && meta.envName && process.env[meta.envName]) return process.env[meta.envName];
     return null;
   };
-  const postIdsOf = (item) => (item.links || []).map(postIdFromLink).filter(Boolean);
+  const facebookLinksOf = (item) => [...new Set([
+    ...((item.approvals && item.approvals.facebook && item.approvals.facebook.links) || []),
+    ...(item.links || []),
+  ].filter(Boolean))];
+  const postIdsOf = (item) => facebookLinksOf(item).map(postIdFromLink).filter(Boolean);
+  const hasPostedChannelExcept = (approvals, target) => Object.entries(approvals || {})
+    .some(([ch, approval]) => ch !== target && approval && approval.status === "posted");
+  const syncPostedChannelRemoval = (item, target, approvalPatch) => {
+    const cfg = loadConfig();
+    const pending = store.getPending(item.id);
+    const route = routeForThread(cfg, item.threadId) || {};
+    const baseApprovals = approvalsOf(pending || item, route);
+    const approvals = { ...baseApprovals, [target]: { ...(baseApprovals[target] || {}), ...approvalPatch } };
+    const patch = { approvals };
+    if (target === "facebook") {
+      patch.links = [];
+      patch.published = false;
+    }
+    if (pending) {
+      const next = store.updatePending(item.id, patch);
+      completePendingIfDone(next || { ...pending, ...patch }, route);
+    }
+    const stillPosted = store.getPosted(item.id);
+    if (stillPosted) {
+      const hasPending = !!store.getPending(item.id);
+      if (hasPostedChannelExcept(approvals, target)) {
+        store.updatePosted(item.id, { ...patch, partial: hasPending });
+      } else {
+        store.removePosted(item.id);
+      }
+    }
+  };
 
   // Đăng THẬT (công khai) một bài đang nháp
   app.post("/api/posted/:id/publish", requireAuth, async (req, res) => {
@@ -135,10 +329,51 @@ export function startWeb(ctx = {}) {
       const ids = postIdsOf(item);
       if (!ids.length) return res.status(400).json({ error: "bài không có link để đăng" });
       for (const pid of ids) await publishPost({ postId: pid, token });
-      store.updatePosted(item.id, { published: true });
+      const approvals = item.approvals || {};
+      const facebook = { ...(approvals.facebook || {}), status: "posted", published: true, at: Date.now() };
+      store.updatePosted(item.id, { published: true, approvals: { ...approvals, facebook }, partial: false });
       store.pushLog(`Đăng CÔNG KHAI (từ nháp): ${item.routeLabel}`);
       res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Xoá riêng nháp/bài Facebook, nhưng giữ Google Business hoặc các kênh còn lại.
+  app.post("/api/posted/:id/delete/facebook", requireAuth, async (req, res) => {
+    const item = store.getPosted(req.params.id);
+    if (!item) return res.status(404).json({ error: "không thấy bài" });
+    const ids = postIdsOf(item);
+    const token = tokenForPosted(item);
+    if (ids.length && !token) return res.status(400).json({ error: "Trang chưa có token để xoá Facebook" });
+    try {
+      for (const pid of ids) {
+        try { await deletePost({ postId: pid, token }); }
+        catch (e) { store.pushLog(`Xoá FB lỗi (${pid}): ${e.message}`); }
+      }
+      syncPostedChannelRemoval(item, "facebook", {
+        status: "rejected",
+        published: false,
+        deleted: true,
+        links: [],
+        at: Date.now(),
+      });
+      store.pushLog(`Đã xoá Facebook: ${item.routeLabel || item.id}`);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Bỏ một kênh đã xử lý khỏi dashboard. Không xoá bài thật trên nền tảng ngoài.
+  app.post("/api/posted/:id/remove/:target", requireAuth, (req, res) => {
+    const item = store.getPosted(req.params.id);
+    if (!item) return res.status(404).json({ error: "không thấy bài" });
+    const target = req.params.target === "gbp" ? "gbp" : "facebook";
+    syncPostedChannelRemoval(item, target, {
+      status: "rejected",
+      removed: true,
+      links: [],
+      at: Date.now(),
+    });
+    store.pushLog(`Đã bỏ kênh ${target === "gbp" ? "Google Business" : "Facebook"} khỏi danh sách: ${item.routeLabel || item.id}`);
+    res.json({ ok: true });
   });
 
   // Sửa nội dung bài đã đăng (cập nhật lên Facebook)
@@ -169,6 +404,14 @@ export function startWeb(ctx = {}) {
       store.pushLog(`Đã xoá bài: ${item.routeLabel}`);
       res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/posted/:id/remove", requireAuth, (req, res) => {
+    const item = store.getPosted(req.params.id);
+    if (!item) return res.status(404).json({ error: "không thấy bài" });
+    store.removePosted(item.id);
+    store.pushLog(`Đã xoá khỏi danh sách đã xử lý: ${item.routeLabel || item.id}`);
+    res.json({ ok: true });
   });
 
   // ===== Cấu hình route =====
@@ -236,6 +479,15 @@ export function startWeb(ctx = {}) {
     res.setHeader("Cache-Control", "no-store");
     res.sendFile(p);
   });
+  app.post("/api/zalo/reconnect", requireAuth, (req, res) => {
+    _groupsCache = null; _groupsAt = 0;
+    if (ctx.reconnect) {
+      ctx.reconnect().catch(() => {});
+      store.pushLog("Yêu cầu kết nối lại Zalo từ dashboard.");
+      return res.json({ ok: true, reconnecting: true });
+    }
+    res.status(501).json({ error: "Service này chưa hỗ trợ kết nối lại trong tiến trình" });
+  });
   // Xoá phiên Zalo hiện tại -> service tự khởi động lại (start.bat) -> hiện QR mới để quét tài khoản khác.
   app.post("/api/zalo/logout", requireAuth, (req, res) => {
     const wipe = !!(req.body && req.body.wipe);
@@ -293,6 +545,37 @@ export function startWeb(ctx = {}) {
     const s = store.setSettings(req.body || {});
     store.pushLog(`Cài đặt: duyệt=${s.approval} tạm dừng=${s.paused}`);
     res.json(s);
+  });
+
+  // ===== Claude API Key =====
+  app.get("/api/claude/status", requireAuth, (req, res) => {
+    const key = process.env.ANTHROPIC_API_KEY || "";
+    res.json({ hasKey: !!key, masked: key ? key.slice(0, 14) + "…" : "", model: process.env.CLAUDE_MODEL || "claude-sonnet-4-6" });
+  });
+
+  app.post("/api/claude/key", requireAuth, (req, res) => {
+    const { key, model } = req.body || {};
+    if (key) {
+      if (!String(key).startsWith("sk-ant-")) return res.status(400).json({ error: "Key không hợp lệ (phải bắt đầu bằng sk-ant-)" });
+      saveToken("ANTHROPIC_API_KEY", String(key).trim());
+    }
+    if (model) saveToken("CLAUDE_MODEL", String(model).trim());
+    res.json({ ok: true });
+  });
+
+  app.get("/api/claude/test", requireAuth, async (req, res) => {
+    const key = process.env.ANTHROPIC_API_KEY;
+    if (!key) return res.status(400).json({ ok: false, error: "Chưa có API key" });
+    try {
+      const { default: Anthropic } = await import("@anthropic-ai/sdk");
+      const client = new Anthropic({ apiKey: key });
+      const msg = await client.messages.create({
+        model: process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001",
+        max_tokens: 8,
+        messages: [{ role: "user", content: "ping" }],
+      });
+      res.json({ ok: true, model: msg.model });
+    } catch (e) { res.json({ ok: false, error: e.message }); }
   });
 
   // ===== Token & danh sách Trang =====
@@ -360,6 +643,44 @@ export function startWeb(ctx = {}) {
     let pages = [];
     try { pages = (await buildPagesList()).map((p) => ({ page: p.name, fanpageId: p.fanpageId, env: p.envName, hasToken: p.hasToken, expiresAt: p.expiresAt })); } catch {}
     res.json({ appId: process.env.FB_APP_ID || "", hasSecret: !!process.env.FB_APP_SECRET, pages });
+  });
+
+  // ===== Google Business Profile / Playwright session =====
+  app.get("/api/gbp/status", requireAuth, (req, res) => {
+    res.json({
+      session: inspectGbpSession(),
+      login: gbpLoginStatus(),
+      businesses: loadGbpBusinesses(),
+    });
+  });
+  app.post("/api/gbp/login/start", requireAuth, async (req, res) => {
+    try {
+      const r = await beginGBPLogin();
+      store.pushLog("Google Business: đã mở trình duyệt để đăng nhập/cập nhật session.");
+      res.json(r);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+  app.post("/api/gbp/login/save", requireAuth, async (req, res) => {
+    try {
+      const r = await finishGBPLogin();
+      store.pushLog("Google Business: đã lưu session Playwright.");
+      res.json(r);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+  app.post("/api/gbp/login/cancel", requireAuth, async (req, res) => {
+    try {
+      const r = await cancelGBPLogin();
+      store.pushLog("Google Business: đã hủy phiên đăng nhập Playwright.");
+      res.json(r);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+  app.get("/api/gbp/businesses", requireAuth, (req, res) => res.json(loadGbpBusinesses()));
+  app.post("/api/gbp/businesses", requireAuth, (req, res) => {
+    try {
+      const list = saveGbpBusinesses(req.body?.businesses || []);
+      store.pushLog("Google Business: đã lưu " + list.length + " hồ sơ.");
+      res.json({ ok: true, businesses: list });
+    } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
   // Dán 1 user token -> phát hiện MỌI Trang user quản lý, cấp token vĩnh viễn, lưu vào .env + data/pages.json.

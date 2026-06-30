@@ -1,12 +1,12 @@
 // recover.mjs — cứu ảnh đã gửi TRƯỚC khi service bật (zca-js không buffer).
 // Kéo lịch sử nhóm -> lọc ảnh gần nhất -> đăng nháp lên page tương ứng. KHÔNG reply Zalo.
-// Chạy khi service ĐANG TẮT. Ví dụ: node --env-file=.env recover.mjs 204024737146120985
+// Chạy khi service ĐANG TẮT (từ thư mục gốc dự án). Ví dụ: node --env-file=.env scripts/recover.mjs 204024737146120985
 import { Zalo } from "zca-js";
 import fs from "node:fs";
-import { extractEvent } from "./src/extract.mjs";
-import { processBatch } from "./src/pipeline.mjs";
-import { postToPage } from "./src/facebook.mjs";
-import { loadConfig, routeForThread } from "./src/config.mjs";
+import { extractEvent } from "../src/extract.mjs";
+import { processBatch } from "../src/pipeline.mjs";
+import { postToPage } from "../src/facebook.mjs";
+import { loadConfig, routeForThread } from "../src/config.mjs";
 
 const GROUP = process.argv[2] || "204024737146120985";
 const WINDOW_MS = Number(process.env.RECOVER_WINDOW_MIN || 60) * 60 * 1000;

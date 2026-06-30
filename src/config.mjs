@@ -15,6 +15,8 @@ export function loadConfig(file = process.env.ROUTES_FILE || DEFAULT_FILE) {
     debounceMs: Number(raw.defaults?.debounceMs ?? 600000),
     maxWaitMs: Number(raw.defaults?.maxWaitMs ?? 1800000),
     published: raw.defaults?.published ?? false, // mặc định ĐĂNG NHÁP (an toàn) — bật true để công khai
+    facebookAutoPublish: raw.defaults?.facebookAutoPublish ?? false,
+    gbpAutoPublish: raw.defaults?.gbpAutoPublish ?? false,
   };
 
   const byThread = new Map();
@@ -30,9 +32,12 @@ export function loadConfig(file = process.env.ROUTES_FILE || DEFAULT_FILE) {
       debounceMs: Number(r.debounceMs ?? defaults.debounceMs),
       maxWaitMs: Number(r.maxWaitMs ?? defaults.maxWaitMs),
       published: r.published ?? defaults.published, // true = đăng công khai; false = nháp
+      facebookAutoPublish: r.facebookAutoPublish ?? false, // true = bỏ qua duyệt, đăng Facebook công khai ngay
+      gbpAutoPublish: r.gbpAutoPublish ?? false, // true = bỏ qua duyệt, đăng Google Business ngay
       enabled: r.enabled !== false, // false = tạm tắt nhóm này
       comment: r.comment || "", // comment đầu tự động (SĐT/địa chỉ...)
       captionFooter: r.captionFooter || "", // chân bài cố định (hotline/địa chỉ) chèn cuối caption
+      gbpLocationId: r.gbpLocationId || "", // Google Business Profile location ID; rỗng = không đăng GBP
     });
   }
   return { defaults, byThread, file };
