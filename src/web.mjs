@@ -1,7 +1,7 @@
 // src/web.mjs — Web dashboard: đăng nhập, duyệt & đăng bài, comment, route, token, log.
 import express from "express";
 import { createProxyMiddleware } from "http-proxy-middleware";
-import { NOVNC_PORT } from "./gbpvnc.mjs";
+import { NOVNC_PORT, vncAvailable, vncStarted } from "./gbpvnc.mjs";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -695,6 +695,17 @@ export function startWeb(ctx = {}) {
       res.json(r);
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
+  // Chẩn đoán noVNC: xem layout file thật trên VPS để sửa đúng đường dẫn iframe
+  app.get("/api/gbp/vnc-debug", requireAuth, (req, res) => {
+    const dirs = ["/usr/share/novnc", "/usr/share/webapps/novnc", "/usr/lib/novnc"];
+    const out = { available: vncAvailable(), started: vncStarted(), novncPort: NOVNC_PORT, dirs: {} };
+    for (const d of dirs) {
+      try { out.dirs[d] = fs.readdirSync(d).slice(0, 50); } catch (e) { out.dirs[d] = "(không có)"; }
+    }
+    out.bins = { Xvfb: fs.existsSync("/usr/bin/Xvfb"), x11vnc: fs.existsSync("/usr/bin/x11vnc"), websockify: fs.existsSync("/usr/bin/websockify") };
+    res.json(out);
+  });
+
   // Tải session lên (đăng nhập Google ở máy local -> upload file data/gbp-session.json)
   app.post("/api/gbp/session/upload", requireAuth, (req, res) => {
     try {
