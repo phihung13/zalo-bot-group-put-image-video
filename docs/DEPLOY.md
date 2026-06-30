@@ -53,9 +53,15 @@ Chỉ cần **một** volume `/app/data` là đủ (mọi thứ ghi-runtime đã
 5. Vào **Nhóm → Page** → chọn nhóm Zalo + Trang Facebook → **Lưu cấu hình**.
 6. Xong — bot bắt đầu lắng nghe.
 
-## Cập nhật về sau
+## Cập nhật về sau (auto-deploy)
 
-`git push` → Coolify redeploy. Dữ liệu/phiên/token **giữ nguyên** nhờ volume `/app/data` (không phải quét QR lại).
+Đã bật **Auto Deploy** + **GitHub webhook** (push event). Quy trình:
+
+```
+sửa code → PR → CI test → merge main → GitHub webhook → Coolify tự build & deploy
+```
+
+Mỗi lần merge vào `main`, VPS tự cập nhật. Dữ liệu/phiên/token **giữ nguyên** nhờ volume `/app/data` (không phải quét QR lại).
 
 ## Chạy local vẫn như cũ
 
