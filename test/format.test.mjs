@@ -82,15 +82,15 @@ function ffprobeSize(file) {
   ok("formatVideo (ffmpeg thật) -> mp4 1080x1080");
 }
 
-// --- ffmpeg THẬT native: clip 3000x1000 -> giữ tỉ lệ, cap 1920 -> 1920x640 (chẵn) ---
+// --- ffmpeg THẬT native: clip 3000x1000 -> giữ tỉ lệ, cap 1080 -> 1080x360 (chẵn) ---
 {
   const srcVid = path.join(tmp, "src2.mp4");
   await runFfmpeg(["-y", "-f", "lavfi", "-i", "testsrc=size=3000x1000:rate=15:duration=1", "-pix_fmt", "yuv420p", srcVid]);
   const outVid = path.join(tmp, "out2.mp4");
   await formatVideo(srcVid, outVid, { mode: "native" });
   const size = await ffprobeSize(outVid);
-  assert.equal(size, "1920,640", `video native ra ${size}`);
-  ok("formatVideo native (ffmpeg thật) -> giữ tỉ lệ 1920x640");
+  assert.equal(size, "1080,360", `video native ra ${size}`);
+  ok("formatVideo native (ffmpeg thật) -> giữ tỉ lệ 1080x360");
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });
