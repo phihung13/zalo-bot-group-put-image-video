@@ -15,7 +15,7 @@ export const PRESETS = {
 export const DEFAULT_PRESET = "square";
 export const DEFAULT_MODE = "native"; // giữ nguyên tỉ lệ, chỉ chuẩn hoá chất lượng FB
 export const FB_MAX_EDGE = 2048;       // cạnh dài tối đa Facebook giữ nét (ảnh)
-export const FB_MAX_EDGE_VIDEO = 1920; // cạnh dài tối đa hợp lý cho video FB
+export const FB_MAX_EDGE_VIDEO = 1080; // cạnh dài tối đa cho video (1080 đủ nét, FB nén lại; nhẹ hơn nhiều so 1920)
 
 function dims(preset) {
   const p = typeof preset === "string" ? PRESETS[preset] : preset;
@@ -151,7 +151,9 @@ export async function formatVideo(inputPath, outPath, o = {}) {
     "-i", inputPath,
     ...filterFlag,
     "-r", String(o.fps || 30),
-    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", String(o.crf || 23),
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", String(o.crf || 27),
+    // chặn bitrate đỉnh -> file không phình to (preview tải nhanh; FB vẫn nhận tốt)
+    "-maxrate", o.maxrate || "2500k", "-bufsize", o.bufsize || "5000k",
     "-c:a", "aac", "-b:a", "128k",
     "-movflags", "+faststart",
     outPath,
