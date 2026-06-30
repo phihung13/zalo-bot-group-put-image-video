@@ -1076,7 +1076,7 @@ async function renderSettings(){const s=(window._st&&window._st.settings)||(awai
  $('#settings').innerHTML+= `<div class="card" id="claudeCard"><div class="card-head"><b>Claude AI</b><span class="pill ${cl.hasKey?'on':'off'}">${cl.hasKey?'Đã có key':'Chưa có key'}</span></div>
   ${cl.hasKey?'':'<p class="muted" style="margin:0 0 12px">Chưa có API key — AI viết caption sẽ không hoạt động.</p>'}
   <div class="fieldset" style="margin:0 0 10px"><label for="claudeKeyIn">API Key (sk-ant-…)</label>
-   <input id="claudeKeyIn" type="password" placeholder="sk-ant-api03-…" autocomplete="off"></div>
+   <input id="claudeKeyIn" type="text" placeholder="sk-ant-api03-…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-form-type="other" name="claude-api-key-field"></div>
   <div class="row" style="gap:8px">
    <button class="btn-primary" onclick="saveClaudeKey()">Lưu</button>
    <button class="btn-ghost" onclick="testClaudeKey()">${ic('zap',15)} Kiểm tra kết nối</button>
@@ -1089,8 +1089,11 @@ const CLAUDE_MODELS=[
  {id:'claude-haiku-4-5-20251001',label:'Haiku 4.5 — nhanh, rẻ'},
  {id:'claude-opus-4-8',label:'Opus 4.8 — mạnh nhất'},
 ];
-async function saveClaudeKey(){const k=$('#claudeKeyIn').value.trim();if(!k)return toast('Nhập API key trước');
- try{await api('/api/claude/key','POST',{key:k});toast('Đã lưu');$('#claudeKeyIn').value='';renderSettings()}catch(e){toast('Lỗi: '+e.message)}}
+async function saveClaudeKey(){const k=$('#claudeKeyIn').value.trim();const r=$('#claudeTestResult');
+ if(!k)return toast('Nhập API key trước');
+ if(!k.startsWith('sk-ant-')){if(r)r.innerHTML=`<div class="cardmsg err" style="display:block">Key phải bắt đầu bằng <b>sk-ant-</b>. Ô đang chứa: <code>${esc(k.slice(0,12))}…</code> — xoá sạch rồi dán lại key thật.</div>`;return}
+ try{await api('/api/claude/key','POST',{key:k});if(r)r.innerHTML=`<div class="cardmsg ok" style="display:block">Đã lưu key. Bấm <b>Kiểm tra kết nối</b> để xác nhận.</div>`;$('#claudeKeyIn').value='';renderSettings()}
+ catch(e){if(r)r.innerHTML=`<div class="cardmsg err" style="display:block">Lưu lỗi: ${esc(e.message)}</div>`}}
 async function setClaudeModel(m){try{await api('/api/claude/key','POST',{model:m});window._claudeModel=m;toast('Đã chọn '+m)}catch(e){toast('Lỗi: '+e.message)}}
 async function testClaudeKey(){const r=$('#claudeTestResult');if(r)r.innerHTML=`<span class="muted"><span class="spin"></span> Đang kiểm tra…</span>`;
  try{const d=await api('/api/claude/test');
