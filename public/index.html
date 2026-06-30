@@ -1041,10 +1041,14 @@ async function renderGbp(){const s=await api('/api/gbp/status');window._gbps=s.b
    <tr><th>Hạn ước tính</th><td>${gbpExpiryText(sess.expiresAt,sess.expired)}</td></tr>
   </tbody></table></div>
   <div class="row" style="margin-top:12px">
-   <button class="btn-primary" onclick="gbpStartLogin()">${sess.hasSession?'Cập nhật session':'Mở Playwright đăng nhập'}</button>
-   ${login.active?`<button class="btn-success" onclick="gbpSaveLogin()">Lưu session sau khi đăng nhập</button><button class="btn-danger" onclick="gbpCancelLogin()">Hủy</button><span class="cardmsg busy"><span class="spin"></span>Đang mở trình duyệt Google</span>`:''}
+   <button class="btn-primary" onclick="gbpStartLogin()">${sess.hasSession?'Cập nhật session':'Mở trình duyệt đăng nhập'}</button>
+   ${login.active?`<button class="btn-success" onclick="gbpSaveLogin()">Lưu session (sau khi đăng nhập xong)</button><button class="btn-danger" onclick="gbpCancelLogin()">Hủy</button>`:''}
   </div>
-  <p class="field-help" style="margin-top:8px">Nút trên chỉ chạy được ở <b>máy có màn hình</b> (local). Sau khi bấm mở, đăng nhập trong cửa sổ Chrome vừa hiện rồi bấm <b>Lưu session</b>.</p>
+  ${login.active&&login.vnc?`<div style="margin-top:12px">
+   <div class="cardmsg busy" style="display:block;margin-bottom:8px">Đăng nhập Google ngay trong khung dưới (nhập email/mật khẩu/2FA). Xong vào được tài khoản thì bấm <b>Lưu session</b> ở trên.</div>
+   <iframe src="/vnc/vnc.html?autoconnect=true&resize=remote&path=vnc/websockify&reconnect=true" style="width:100%;height:560px;border:1px solid var(--border);border-radius:var(--r-sm);background:#000" title="Đăng nhập Google Business"></iframe>
+  </div>`:''}
+  ${!login.active?`<p class="field-help" style="margin-top:8px">Bấm để mở trình duyệt đăng nhập Google. Trên VPS, trình duyệt hiện ngay trong khung dưới (noVNC) để bạn tự nhập tài khoản.</p>`:''}
   <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
    <b style="font-size:var(--fs-sm)">Tải session lên (cho máy chủ / VPS không màn hình)</b>
    <p class="field-help" style="margin:4px 0 8px">VPS không mở được trình duyệt đăng nhập. Ở <b>máy local</b> chạy <code>npm run gbp:login</code> để đăng nhập Google → sinh file <code>data/gbp-session.json</code>. Chọn file đó để tải lên đây:</p>
