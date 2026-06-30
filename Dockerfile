@@ -2,8 +2,10 @@
 FROM node:20-bookworm-slim
 
 # ffmpeg+ffprobe: xử lý/trích khung video. ca-certificates: gọi Graph API qua HTTPS.
+# xvfb+x11vnc+novnc+websockify: cho phép đăng nhập Google Business TƯƠNG TÁC qua noVNC
+# (trình duyệt chạy trên màn hình ảo của VPS, nhúng vào dashboard để người dùng tự đăng nhập).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+  && apt-get install -y --no-install-recommends ffmpeg ca-certificates xvfb x11vnc novnc websockify \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

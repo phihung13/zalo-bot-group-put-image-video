@@ -1,5 +1,7 @@
 // src/web.mjs — Web dashboard: đăng nhập, duyệt & đăng bài, comment, route, token, log.
 import express from "express";
+import { createProxyMiddleware } from "http-proxy-middleware";
+import { NOVNC_PORT } from "./gbpvnc.mjs";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -94,6 +96,10 @@ export function startWeb(ctx = {}) {
 
   // Ảnh draft (bảo vệ bằng auth)
   app.use("/output", requireAuth, express.static(dataPath("output")));
+
+  // noVNC: nhúng trình duyệt đăng nhập Google Business (auth-gated; WebSocket gate ở 'upgrade' bên dưới)
+  const vncProxy = createProxyMiddleware({ target: `http://127.0.0.1:${NOVNC_PORT}`, changeOrigin: true, ws: true, pathRewrite: { "^/vnc": "" } });
+  app.use("/vnc", requireAuth, vncProxy);
 
   // ===== Trạng thái =====
   app.get("/api/status", requireAuth, (req, res) => {
@@ -804,6 +810,13 @@ export function startWeb(ctx = {}) {
   app.get("/", (req, res) => res.sendFile(PAGE_FILE));
 
   const PORT = Number(process.env.WEB_PORT || 8080);
-  app.listen(PORT, () => console.log(`🌐 Web dashboard: http://localhost:${PORT}`));
+  const server = app.listen(PORT, () => console.log(`🌐 Web dashboard: http://localhost:${PORT}`));
+  // WebSocket noVNC: chỉ cho phiên đã đăng nhập dashboard (gate bằng cookie sid)
+  server.on("upgrade", (req, socket, head) => {
+    if (!req.url || !req.url.startsWith("/vnc")) return;
+    const sid = parseCookies(req).sid;
+    if (!sessions.has(sid)) { try { socket.destroy(); } catch {} return; }
+    vncProxy.upgrade(req, socket, head);
+  });
   return app;
 }

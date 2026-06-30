@@ -4,6 +4,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { dataPath } from "./paths.mjs";
+import { startVncStack, stopVncStack, vncAvailable } from "./gbpvnc.mjs";
 
 export const GBP_SESSION_FILE = dataPath("data", "gbp-session.json");
 export const GBP_BUSINESSES_FILE = dataPath("data", "gbp-businesses.json");
@@ -71,41 +72,49 @@ export function importGbpSession(state, { sessionFile = GBP_SESSION_FILE } = {})
 }
 
 export async function beginGBPLogin({ sessionFile = GBP_SESSION_FILE } = {}) {
-  if (loginFlow) return { already: true, startedAt: loginFlow.startedAt };
-  // Trình duyệt CÓ giao diện cần màn hình. VPS Linux không có X server -> báo rõ, KHÔNG crash (tránh kéo Zalo rớt).
+  if (loginFlow) return { already: true, startedAt: loginFlow.startedAt, vnc: loginFlow.vnc };
+  let vnc = false;
+  // Trình duyệt CÓ giao diện cần màn hình. VPS Linux không màn hình -> dựng màn hình ảo + noVNC để xem/thao tác.
   if (process.platform === "linux" && !process.env.DISPLAY) {
-    throw new Error("Máy chủ không có màn hình (headless) nên không mở được trình duyệt đăng nhập. Hãy đăng nhập Google ở MÁY LOCAL bằng lệnh: npm run gbp:login — rồi tải file data/gbp-session.json lên ở mục 'Tải session lên' bên dưới.");
+    if (!vncAvailable()) {
+      throw new Error("Máy chủ không có màn hình và image chưa có noVNC. Hãy Redeploy (Dockerfile đã thêm xvfb/x11vnc/novnc), hoặc đăng nhập ở máy local rồi tải session lên.");
+    }
+    await startVncStack();
+    vnc = true;
   }
   const chromium = await getChromium();
-  const browser = await chromium.launch({ headless: false });
-  const ctx = await browser.newContext(fs.existsSync(sessionFile) ? { storageState: sessionFile } : {});
+  const browser = await chromium.launch({ headless: false, args: ["--no-sandbox", "--disable-dev-shm-usage", "--start-maximized"] });
+  const ctx = await browser.newContext(fs.existsSync(sessionFile) ? { storageState: sessionFile } : { viewport: null });
   const page = await ctx.newPage();
   await page.goto("https://accounts.google.com/signin/v2/identifier", { waitUntil: "domcontentloaded", timeout: TIMEOUT }).catch(async () => {
     await page.goto("https://myaccount.google.com/", { waitUntil: "domcontentloaded", timeout: TIMEOUT });
   });
-  loginFlow = { browser, ctx, page, startedAt: Date.now(), sessionFile };
-  return { ok: true, startedAt: loginFlow.startedAt };
+  loginFlow = { browser, ctx, page, startedAt: Date.now(), sessionFile, vnc };
+  return { ok: true, startedAt: loginFlow.startedAt, vnc };
 }
 
 export async function finishGBPLogin() {
   if (!loginFlow) throw new Error("Chưa mở phiên đăng nhập Google Business");
-  const { browser, ctx, sessionFile, startedAt } = loginFlow;
+  const { browser, ctx, sessionFile, startedAt, vnc } = loginFlow;
   fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
   await ctx.storageState({ path: sessionFile });
   await browser.close();
+  if (vnc) stopVncStack();
   loginFlow = null;
   return { ok: true, startedAt, session: inspectGbpSession({ sessionFile }) };
 }
 
 export async function cancelGBPLogin() {
   if (!loginFlow) return { ok: true };
+  const vnc = loginFlow.vnc;
   try { await loginFlow.browser.close(); } catch {}
+  if (vnc) stopVncStack();
   loginFlow = null;
   return { ok: true };
 }
 
 export function gbpLoginStatus() {
-  return loginFlow ? { active: true, startedAt: loginFlow.startedAt } : { active: false };
+  return loginFlow ? { active: true, startedAt: loginFlow.startedAt, vnc: !!loginFlow.vnc } : { active: false };
 }
 
 /**
