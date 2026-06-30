@@ -460,6 +460,37 @@ export function startWeb(ctx = {}) {
     res.json({ ok: true });
   });
 
+  // Tải lại chân bài cho bài ĐÃ ĐĂNG (cập nhật caption đã lưu — KHÔNG sửa bài trên Facebook).
+  app.post("/api/posted/:id/reload-footer", requireAuth, (req, res) => {
+    const item = store.getPosted(req.params.id);
+    if (!item) return res.status(404).json({ error: "không thấy bài" });
+    const route = routeForThread(loadConfig(), item.threadId) || {};
+    const nf = String(route.captionFooter || "").trim();
+    const next = store.updatePosted(item.id, { caption: reapplyFooter(item.caption, item.captionFooter, nf), captionFooter: nf });
+    store.pushLog(`Tải lại chân bài (bài đã đăng): ${item.routeLabel || item.id}`);
+    res.json(next || item);
+  });
+
+  // Đăng nháp lại: tạo BẢN NHÁP MỚI từ bài đã đăng (footer mới nhất) -> vào hàng chờ duyệt để đăng lại.
+  app.post("/api/posted/:id/redraft", requireAuth, (req, res) => {
+    const item = store.getPosted(req.params.id);
+    if (!item) return res.status(404).json({ error: "không thấy bài" });
+    if (!(item.savedImages?.length) && !(item.savedVideos?.length)) return res.status(400).json({ error: "Bài không còn ảnh/video để đăng lại" });
+    const route = routeForThread(loadConfig(), item.threadId) || {};
+    const nf = String(route.captionFooter || "").trim();
+    const newId = `${item.id}_v${Date.now()}`;
+    const draft = {
+      ...item, id: newId,
+      caption: reapplyFooter(item.caption, item.captionFooter, nf), captionFooter: nf,
+      published: route.published, createdAt: Date.now(),
+      links: undefined, postedAt: undefined, partial: undefined,
+      approvals: { facebook: { status: "pending" }, ...(gbpIdsOf(item, route).length && item.savedImages?.length ? { gbp: { status: "pending" } } : {}) },
+    };
+    store.addPending(draft);
+    store.pushLog(`Đăng nháp lại: ${item.routeLabel || item.id} → bản nháp mới chờ duyệt`);
+    res.json({ ok: true, id: newId });
+  });
+
   // ===== Cấu hình route =====
   app.get("/api/routes", requireAuth, (req, res) => res.json(JSON.parse(fs.readFileSync(ROUTES_FILE, "utf8"))));
   app.post("/api/routes", requireAuth, (req, res) => {
