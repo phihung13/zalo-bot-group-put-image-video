@@ -556,18 +556,28 @@ export function startWeb(ctx = {}) {
     try { fs.mkdirSync(path.dirname(GROUPS_FILE), { recursive: true }); fs.writeFileSync(GROUPS_FILE, JSON.stringify({ at: _groupsAt, groups })); } catch {}
     return groups;
   }
+  // Lọc theo allowlist (chỉ hiện nhóm đã chọn). Nhóm đã cấu hình route LUÔN hiện. all=1 -> bỏ lọc.
+  const filterGroups = (list, all) => {
+    if (all) return list || [];
+    const s = store.getSettings();
+    const allow = Array.isArray(s.groupAllowlist) ? s.groupAllowlist.map(String).filter(Boolean) : [];
+    if (!allow.length) return list || [];
+    const keep = new Set([...allow, ...[...loadConfig().byThread.keys()].map(String)]);
+    return (list || []).filter((g) => keep.has(String(g.threadId)));
+  };
   app.get("/api/zalo/groups", requireAuth, async (req, res) => {
+    const all = req.query.all === "1";
     const zalo = ctx.getZalo && ctx.getZalo();
     const fresh = _groupsCache && Date.now() - _groupsAt < 300000; // 5 phút
     if (_groupsCache) {
-      res.json(_groupsCache); // trả NGAY (kể cả hơi cũ)
+      res.json(filterGroups(_groupsCache, all)); // trả NGAY (kể cả hơi cũ)
       if (!fresh && zalo && !_groupsRefreshing) { _groupsRefreshing = true; refreshGroups(zalo).catch(() => {}).finally(() => { _groupsRefreshing = false; }); }
       return;
     }
     if (!zalo) return res.status(503).json({ error: "Zalo chưa kết nối — không lấy được danh sách nhóm" });
     try {
       if (!_groupsPromise) _groupsPromise = refreshGroups(zalo).finally(() => { _groupsPromise = null; });
-      res.json(await _groupsPromise);
+      res.json(filterGroups(await _groupsPromise, all));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
