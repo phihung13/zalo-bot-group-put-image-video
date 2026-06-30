@@ -704,13 +704,20 @@ export function startWeb(ctx = {}) {
       try { pages = await listUserPages(longUser); } catch (e) { accountsErr = e.message; }
       // Bổ sung cho trường hợp Business Manager (/me/accounts rỗng): lấy token TRỰC TIẾP theo ID Trang đã biết.
       const have = new Set(pages.map((p) => String(p.id)));
+      // ID Trang người dùng tự nhập (tổng quát: thêm Trang MỚI chưa có trong routes).
+      // Nhận ID số, username, hoặc link facebook.com/... -> tách phần định danh.
+      const userRefs = String(req.body.pageRefs || "")
+        .split(/[\s,]+/).map((x) => x.trim()).filter(Boolean)
+        .map((x) => { const m = x.match(/facebook\.com\/(?:profile\.php\?id=)?([^/?&#]+)/i); return m ? m[1] : x; })
+        .filter(Boolean);
       const knownIds = new Set([
+        ...userRefs,
         ...Object.keys(loadPages()),
         ...[...loadConfig().byThread.values()].map((r) => r.fanpageId).filter(Boolean).map(String),
       ]);
       for (const pid of knownIds) {
         if (have.has(String(pid))) continue;
-        try { const { token, name } = await derivePageToken(pid, longUser); if (token) { pages.push({ id: String(pid), name: name || ("Trang " + pid), token }); have.add(String(pid)); } } catch {}
+        try { const { token, name, id } = await derivePageToken(pid, longUser); if (token) { const fid = id || String(pid); if (have.has(fid)) continue; pages.push({ id: fid, name: name || ("Trang " + fid), token }); have.add(fid); have.add(String(pid)); } } catch {}
       }
       // Fallback: nếu là PAGE token đơn lẻ -> nhận đúng 1 Trang đó.
       if (!pages.length && (dbg.type === "PAGE" || dbg.profile_id)) {

@@ -981,6 +981,8 @@ async function renderToken(){const t=await api('/api/token');const el=$('#token'
   <div class="card"><div class="card-head"><b>Cấp / làm mới token</b></div>
   <p class="muted" style="margin:0 0 10px">Chỉ cần làm khi cột <b>Hết hạn</b> báo <i>thiếu / sắp hết / đã hết</i>. Dán token vào ô dưới rồi bấm <b>Cấp</b> — token <b>vĩnh viễn</b> thì khỏi đụng tới.</p>
   <textarea id="utok" aria-label="Dán User Token Facebook" placeholder="Dán User Token (hoặc Page Token) vào đây..."></textarea>
+  <textarea id="pageids" aria-label="ID hoặc link Trang" placeholder="(Tuỳ chọn) ID hoặc link Trang — mỗi dòng 1 — dùng khi danh sách Trang để trống (Trang trong Business Manager). VD: 106075121755248  hoặc  facebook.com/TenTrang" style="margin-top:8px;min-height:58px"></textarea>
+  <p class="field-help" style="margin:6px 0 0">Nếu dán user token mà không hiện Trang nào (Trang nằm trong Business Manager), điền <b>ID hoặc link từng Trang</b> vào ô trên — hệ thống lấy token Trang trực tiếp theo ID. Lấy ID ở: Trang → Giới thiệu → ID Trang.</p>
   <div class="row" style="margin-top:10px"><button class="btn-primary" onclick="refreshTok()">Cấp / làm mới token</button><a class="btn-ghost" href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener">Lấy token (Graph Explorer) ${ic('ext',14)}</a><span class="muted" id="tokmsg" role="status" aria-live="polite"></span></div>
   <div class="fieldset" style="margin-top:14px">
    <div class="collapse-head" onclick="toggleField('tokguide')"><label>Hướng dẫn lấy token — 4 bước</label><span class="collapse-state">bấm để mở <span class="chev" id="arrow_tokguide">${ic('chevron',14)}</span></span></div>
@@ -1003,7 +1005,7 @@ function expiryText(e){
  return days<14?`<span class="pill off">${d} (${days} ngày)</span>`:`<span class="muted">${d}</span>`;
 }
 async function refreshTok(){const el=$('#tokmsg');el.textContent='Đang tìm các Trang…';
- try{const r=await fetch('/api/token/refresh',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({userToken:$('#utok').value.trim()})});
+ try{const r=await fetch('/api/token/refresh',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({userToken:$('#utok').value.trim(),pageRefs:($('#pageids')&&$('#pageids').value)||''})});
   const j=await r.json().catch(()=>({}));
   if(r.status===401){show(false);return}
  if(!r.ok)throw new Error((j.error||('HTTP '+r.status))+(j.detail?('  ·  '+j.detail):''));

@@ -12,9 +12,10 @@ export async function exchangeLongLivedUser(shortToken, appId, appSecret) {
 }
 
 export async function derivePageToken(pageId, userToken) {
-  const r = await (await fetch(`${G}/${pageId}?fields=access_token,name&access_token=${encodeURIComponent(userToken)}`)).json();
+  const r = await (await fetch(`${G}/${pageId}?fields=access_token,name,id&access_token=${encodeURIComponent(userToken)}`)).json();
   if (!r.access_token) throw new Error(r.error?.message || "lấy page token thất bại");
-  return { token: r.access_token, name: r.name };
+  // Trả id SỐ chuẩn (Graph chấp nhận username/link ở path, nhưng id trả về luôn là số) -> khớp mapping route.
+  return { token: r.access_token, name: r.name, id: r.id ? String(r.id) : String(pageId) };
 }
 
 /** Liệt kê mọi Trang user token quản lý (id, tên, page token). Token này vĩnh viễn nếu user token đã long-lived. */
