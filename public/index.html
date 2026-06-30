@@ -1041,8 +1041,11 @@ async function renderGbp(){const s=await api('/api/gbp/status');window._gbps=s.b
    <tr><th>Hạn ước tính</th><td>${gbpExpiryText(sess.expiresAt,sess.expired)}</td></tr>
   </tbody></table></div>
   <div class="row" style="margin-top:12px">
-   <button class="btn-primary" onclick="gbpStartLogin()">${sess.hasSession?'Cập nhật session':'Mở trình duyệt đăng nhập'}</button>
-   ${login.active?`<button class="btn-success" onclick="gbpSaveLogin()">Lưu session (sau khi đăng nhập xong)</button><button class="btn-danger" onclick="gbpCancelLogin()">Hủy</button>`:''}
+   ${window._gbpStarting
+     ? `<button class="btn-primary" disabled><span class="spin"></span> Đang khởi động trình duyệt… (10-15 giây, đừng bấm lại)</button>`
+     : (login.active
+        ? `<button class="btn-success" onclick="gbpSaveLogin()">Lưu session (sau khi đăng nhập xong)</button><button class="btn-danger" onclick="gbpCancelLogin()">Hủy</button>`
+        : `<button class="btn-primary" onclick="gbpStartLogin()">${sess.hasSession?'Cập nhật session':'Mở trình duyệt đăng nhập'}</button>`)}
   </div>
   ${login.active&&login.vnc?`<div style="margin-top:12px">
    <div class="cardmsg busy" style="display:block;margin-bottom:8px">Đăng nhập Google ngay trong khung dưới (nhập email/mật khẩu/2FA). Xong vào được tài khoản thì bấm <b>Lưu session</b> ở trên.</div>
@@ -1082,7 +1085,10 @@ async function gbpSaveBiz(){const msg=$('#gbpmsg');if(msg)msg.textContent='Đang
 async function gbpUploadSession(input){const f=input.files&&input.files[0];if(!f)return;
  try{const session=JSON.parse(await f.text());await api('/api/gbp/session/upload','POST',{session});toast('Đã tải session lên — Google Business sẵn sàng');renderGbp()}
  catch(e){toast('Lỗi: '+(e.message||'file không hợp lệ'))}finally{input.value=''}}
-async function gbpStartLogin(){try{await api('/api/gbp/login/start','POST');toast('Đã mở trình duyệt Google');renderGbp()}catch(e){toast('Lỗi: '+e.message)}}
+async function gbpStartLogin(){window._gbpStarting=true;renderGbp();
+ try{await api('/api/gbp/login/start','POST');toast('Đã mở trình duyệt Google')}
+ catch(e){toast('Lỗi: '+e.message)}
+ finally{window._gbpStarting=false;renderGbp()}}
 async function gbpSaveLogin(){try{await api('/api/gbp/login/save','POST');toast('Đã lưu session Google Business');renderGbp()}catch(e){toast('Lỗi: '+e.message)}}
 async function gbpCancelLogin(){try{await api('/api/gbp/login/cancel','POST');toast('Đã hủy phiên đăng nhập');renderGbp()}catch(e){toast('Lỗi: '+e.message)}}
 
