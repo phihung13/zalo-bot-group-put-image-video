@@ -964,17 +964,18 @@ async function saveRoutes(){const rs=(window._routes&&window._routes.routes)||[]
  catch(e){toast('Lỗi: '+e.message)}}
 
 async function renderToken(){const t=await api('/api/token');const el=$('#token');
- const needEnv=!t.appId||!t.hasSecret;
- const guide=needEnv?`<div class="card"><div class="guide" style="padding:20px"><h3>Cần cấu hình ứng dụng Facebook trước</h3>
-   <p class="muted" style="margin:0 0 4px">Mở file <b>.env</b> và điền 2 dòng này (lấy từ trang quản lý ứng dụng Facebook của bạn), rồi khởi động lại dịch vụ:</p>
-   <ol class="steps">
-    <li><b>FB_APP_ID</b> — mã ứng dụng ${t.appId?'<span class="pill on">đã có</span>':'<span class="pill off">đang thiếu</span>'}</li>
-    <li><b>FB_APP_SECRET</b> — khoá bí mật ${t.hasSecret?'<span class="pill on">đã có</span>':'<span class="pill off">đang thiếu</span>'}</li>
-   </ol></div></div>`:'';
+ const appOk=!!t.appId&&!!t.hasSecret;
+ const appCard=`<div class="card"><div class="card-head"><b>Ứng dụng Facebook</b><span class="pill ${appOk?'on':'off'}">${appOk?'đã cấu hình':'chưa cấu hình'}</span></div>
+  <p class="muted" style="margin:0 0 10px;font-size:var(--fs-sm)">Lấy ở <b>developers.facebook.com</b> → ứng dụng → Cài đặt → Cơ bản.</p>
+  <div class="row" style="gap:8px;flex-wrap:wrap">
+   <div class="fieldset" style="flex:1;min-width:150px;margin:0"><label for="fbAppId">App ID</label><input id="fbAppId" value="${t.appId?esc(t.appId):''}" placeholder="VD: 1051896344183668"></div>
+   <div class="fieldset" style="flex:1;min-width:150px;margin:0"><label for="fbAppSecret">App Secret</label><input id="fbAppSecret" type="password" autocomplete="off" placeholder="${t.hasSecret?'•••• đã có (để trống = giữ)':'Khoá bí mật'}"></div>
+  </div>
+  <div class="row" style="margin-top:10px;gap:8px"><button class="btn-primary" onclick="saveFbApp()">Lưu</button>${appOk?`<button class="btn-quiet danger" onclick="clearFbApp()">${ic('trash',14)} Xóa cấu hình</button>`:''}</div>
+ </div>`;
  const anyExpiring=t.pages.some(p=>p.hasToken&&p.expiresAt!=null&&p.expiresAt!==0);
  const anyMissing=t.pages.some(p=>!p.hasToken);
- el.innerHTML=guide+`<div class="card"><div class="card-head"><b>Trạng thái token theo Trang</b><span class="muted" style="font-size:var(--fs-xs)">${t.pages.length} Trang</span></div>
-  <p class="muted" style="margin:0 0 10px;font-size:var(--fs-sm)">App <b>${t.appId?esc(t.appId):'—'}</b> · Khoá bí mật ${t.hasSecret?'<span class="pill on">đã có</span>':'<span class="pill off">thiếu</span>'}</p>
+ el.innerHTML=appCard+`<div class="card"><div class="card-head"><b>Trạng thái token theo Trang</b><span class="muted" style="font-size:var(--fs-xs)">${t.pages.length} Trang</span></div>
   <div class="table-wrap"><table class="tbl-token"><thead><tr><th>Trang</th><th>ID Trang</th><th>Token</th><th>Hết hạn</th><th></th></tr></thead><tbody>${t.pages.length?t.pages.map(p=>`<tr><td>${esc(p.page)}</td><td class="muted">${esc(p.fanpageId)}</td><td>${p.hasToken?'<span class="pill on">đã có</span>':'<span class="pill off">thiếu</span>'}</td><td>${expiryText(p.expiresAt)}</td><td style="text-align:right">${p.hasToken?`<button class="btn-quiet danger" title="Xóa token" onclick="deletePageToken('${esc(p.fanpageId)}','${esc((p.page||'').replace(/'/g,'’'))}')">${ic('trash',14)}</button>`:''}</td></tr>`).join(''):'<tr><td colspan="5" class="muted">Chưa có Trang nào — dán user token bên dưới.</td></tr>'}</tbody></table></div>
   <p class="field-help" style="margin-top:8px">${anyMissing?ic('alert',14)+' Có Trang chưa có token — cấp ngay bên dưới. ':''}${anyExpiring?ic('alert',14)+' Có token sắp hết hạn — nên cấp lại. ':''}${(!anyMissing&&!anyExpiring&&t.pages.length)?ic('check',14)+' Mọi token đều ổn (vĩnh viễn) — chưa cần làm gì.':''}</p></div>
   <div class="card"><div class="card-head"><b>Thêm / làm mới token</b></div>
@@ -1001,6 +1002,11 @@ function expiryText(e){
  const days=Math.round((e-now)/86400);
  return days<14?`<span class="pill off">${d} (${days} ngày)</span>`:`<span class="muted">${d}</span>`;
 }
+async function saveFbApp(){const id=$('#fbAppId').value.trim();const sec=$('#fbAppSecret').value.trim();
+ if(!id&&!sec)return toast('Nhập App ID hoặc Secret');
+ try{await api('/api/fb/app','POST',{appId:id,appSecret:sec});toast('Đã lưu cấu hình App');renderToken()}catch(e){toast('Lỗi: '+e.message)}}
+async function clearFbApp(){if(!await confirmModal('Xóa cấu hình App Facebook?','App ID + Secret sẽ bị xóa, hệ thống về trống. Token các Trang vẫn giữ.','Xóa','btn-danger'))return;
+ try{await api('/api/fb/app','POST',{clear:true});toast('Đã xóa cấu hình App');renderToken()}catch(e){toast('Lỗi: '+e.message)}}
 async function deletePageToken(fid,name){
  if(!await confirmModal('Xóa token Trang?','Trang "'+name+'" sẽ bị gỡ token + khỏi danh sách. Bài đang dùng Trang này sẽ không đăng được tới khi cấp lại.','Xóa token','btn-danger'))return;
  try{await api('/api/token/delete','POST',{fanpageId:fid});toast('Đã xóa token Trang');window._fbpages=undefined;renderToken()}catch(e){toast('Lỗi: '+e.message)}}
