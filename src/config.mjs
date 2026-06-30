@@ -22,6 +22,9 @@ export function loadConfig(file = process.env.ROUTES_FILE || DEFAULT_FILE) {
   const byThread = new Map();
   for (const r of raw.routes || []) {
     if (!r.threadId) throw new Error(`routes.json: thiếu threadId ở route ${JSON.stringify(r.label || r)}`);
+    // GBP: hỗ trợ NHIỀU business/1 nhóm. gbpLocationIds (mảng) là nguồn chính; gbpLocationId (cũ) = phần tử đầu.
+    const gbpIds = Array.isArray(r.gbpLocationIds) ? r.gbpLocationIds.map(String).filter(Boolean)
+      : (r.gbpLocationId ? [String(r.gbpLocationId)] : []);
     byThread.set(String(r.threadId), {
       threadId: String(r.threadId),
       label: r.label || r.threadId,
@@ -38,7 +41,8 @@ export function loadConfig(file = process.env.ROUTES_FILE || DEFAULT_FILE) {
       comment: r.comment || "", // comment đầu tự động (SĐT/địa chỉ...)
       captionFooter: r.captionFooter || "", // chân bài cố định (hotline/địa chỉ) chèn cuối caption
       styleSample: r.styleSample || "", // bài mẫu giọng văn của Trang (AI học theo) — nhập trong dashboard
-      gbpLocationId: r.gbpLocationId || "", // Google Business Profile location ID; rỗng = không đăng GBP
+      gbpLocationIds: gbpIds,            // NHIỀU GBP business; rỗng = không đăng GBP
+      gbpLocationId: gbpIds[0] || "",    // tương thích ngược (1 ID)
     });
   }
   return { defaults, byThread, file };

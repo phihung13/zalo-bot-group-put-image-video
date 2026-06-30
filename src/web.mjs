@@ -6,7 +6,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import * as store from "./store.mjs";
-import { publishFacebookDraft, publishGbpDraft } from "./publish.mjs";
+import { publishFacebookDraft, publishGbpDraft, gbpIdsOf } from "./publish.mjs";
 import { publishPost, editPost, deletePost, postIdFromLink } from "./facebook.mjs";
 import { exchangeLongLivedUser, listUserPages, debugToken, setEnvVar, derivePageToken } from "./fbtoken.mjs";
 import { loadPages, savePages, envNameFor } from "./pages.mjs";
@@ -18,8 +18,10 @@ const ROUTES_FILE = process.env.ROUTES_FILE || "config/routes.json";
 const PAGE_FILE = path.resolve("public/index.html");
 
 function channelsFor(d, route = {}) {
-  const gbpLocationId = d.gbpLocationId || route.gbpLocationId || "";
-  return ["facebook", ...(gbpLocationId ? ["gbp"] : [])];
+  // GBP chỉ là 1 kênh nếu route có business VÀ bài có ẢNH (Google Business không nhận video).
+  const hasImages = Array.isArray(d.savedImages) && d.savedImages.length > 0;
+  const gbp = gbpIdsOf(d, route).length > 0 && hasImages;
+  return ["facebook", ...(gbp ? ["gbp"] : [])];
 }
 
 function approvalsOf(d, route = {}) {
@@ -233,12 +235,13 @@ export function startWeb(ctx = {}) {
     const d = store.getPending(req.params.id);
     if (!d) return res.status(404).json({ error: "không thấy draft" });
     const cfg = loadConfig();
-    const route = routeForThread(cfg, d.threadId) || { gbpLocationId: d.gbpLocationId };
-    if (!(d.gbpLocationId || route.gbpLocationId)) return res.status(400).json({ error: "Nhóm này chưa có Google Business Profile Location ID" });
+    const route = routeForThread(cfg, d.threadId) || {};
+    const ids = gbpIdsOf(d, route);
+    if (!ids.length) return res.status(400).json({ error: "Nhóm này chưa chọn Google Business nào" });
     try {
-      const r = await publishGbpDraft({ ...d, gbpLocationId: d.gbpLocationId || route.gbpLocationId }, { ...route, gbpLocationId: d.gbpLocationId || route.gbpLocationId }, { log: store.pushLog });
+      const r = await publishGbpDraft({ ...d, gbpLocationIds: ids }, { ...route, gbpLocationIds: ids }, { log: store.pushLog });
       const approvals = approvalsOf(d, route);
-      approvals.gbp = { status: "posted", at: Date.now(), links: r.links || [] };
+      approvals.gbp = { status: "posted", at: Date.now(), links: r.links || [], count: ids.length, skipped: !!r.skipped };
       const next = store.updatePending(d.id, { approvals });
       rememberProcessedChannel(next || { ...d, approvals }, route, { approvals });
       const done = completePendingIfDone(next || { ...d, approvals }, route);

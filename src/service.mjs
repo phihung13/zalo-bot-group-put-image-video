@@ -70,10 +70,12 @@ async function main() {
           onStage: (stage, extra) => live.processing(batch.threadId, stage, extra),
         });
         if (!res.savedImages.length && !res.savedVideos.length) { live.done(batch.threadId, null); return; }
+        const gbpIds = route.gbpLocationIds || (route.gbpLocationId ? [route.gbpLocationId] : []);
+        const gbpForThisPost = gbpIds.length > 0 && res.savedImages.length > 0; // GBP cần ẢNH (không nhận video)
         const draft = {
           id: path.basename(res.dir), threadId: batch.threadId, routeLabel: route.label,
           fanpageId: route.fanpageId, fanpageTokenEnv: route.fanpageTokenEnv,
-          gbpLocationId: route.gbpLocationId || "",
+          gbpLocationIds: gbpIds, gbpLocationId: gbpIds[0] || "",
           dir: res.dir, savedImages: res.savedImages, savedVideos: res.savedVideos,
           imageUrls: res.savedImages.map((p) => "/output/" + path.relative(dataPath("output"), p).replace(/\\/g, "/")),
           videoUrls: (res.savedVideos || []).map((p) => "/output/" + path.relative(dataPath("output"), p).replace(/\\/g, "/")),
@@ -83,7 +85,7 @@ async function main() {
           droppedCount: res.droppedCount, createdAt: Date.now(), reason,
           approvals: {
             facebook: { status: "pending" },
-            ...(route.gbpLocationId ? { gbp: { status: "pending" } } : {}),
+            ...(gbpForThisPost ? { gbp: { status: "pending" } } : {}),
           },
         };
         const approvals = { ...draft.approvals };
@@ -105,19 +107,19 @@ async function main() {
           }
         }
 
-        if (route.gbpLocationId && route.gbpAutoPublish) {
+        if (gbpForThisPost && route.gbpAutoPublish) {
           try {
             const r = await publishGbpDraft(draft, route, { log: (m) => console.log("  [gbp]", m) });
-            approvals.gbp = { status: "posted", at: Date.now(), links: r.links || [], auto: true };
+            approvals.gbp = { status: "posted", at: Date.now(), links: r.links || [], count: gbpIds.length, auto: true };
             autoPosted = true;
-            store.pushLog(`GOOGLE BUSINESS TỰ ĐĂNG: ${route.label}`);
+            store.pushLog(`GOOGLE BUSINESS TỰ ĐĂNG (${gbpIds.length} business): ${route.label}`);
           } catch (e) {
             console.error("💥 tự đăng GBP lỗi:", e?.message || e);
             store.pushLog("Tự đăng Google Business lỗi: " + (e?.message || e));
           }
         }
 
-        const channels = ["facebook", ...(route.gbpLocationId ? ["gbp"] : [])];
+        const channels = ["facebook", ...(gbpForThisPost ? ["gbp"] : [])];
         const needsReview = channels.some((ch) => approvals[ch]?.status !== "posted");
         const finalDraft = { ...draft, approvals, published, links };
         if (autoPosted) store.addPosted({ ...finalDraft, postedAt: Date.now(), partial: needsReview });

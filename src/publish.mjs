@@ -34,16 +34,26 @@ export async function publishFacebookDraft(draft, route, o = {}) {
   return res;
 }
 
-/** Đăng phần Google Business Profile của một draft đã duyệt. */
+/** Danh sách GBP location IDs của 1 draft/route (gộp mảng mới + ID cũ). */
+export function gbpIdsOf(draft = {}, route = {}) {
+  const a = (draft.gbpLocationIds && draft.gbpLocationIds.length) ? draft.gbpLocationIds
+    : (route.gbpLocationIds && route.gbpLocationIds.length) ? route.gbpLocationIds
+    : (draft.gbpLocationId || route.gbpLocationId) ? [draft.gbpLocationId || route.gbpLocationId] : [];
+  return a.map(String).filter(Boolean);
+}
+
+/** Đăng phần Google Business Profile (NHIỀU business). Bỏ qua nếu bài chỉ có video (GBP không nhận video). */
 export async function publishGbpDraft(draft, route, o = {}) {
   const log = o.log || (() => {});
-  if (!route.gbpLocationId) throw new Error("Route chưa có Google Business Profile Location ID");
-  await postToGBP({
-    locationId: route.gbpLocationId,
-    text: (draft.caption || "").slice(0, 1500),
-    imagePaths: draft.savedImages || [],
-    log,
-  });
+  const ids = gbpIdsOf(draft, route);
+  if (!ids.length) throw new Error("Route chưa có Google Business");
+  const imagePaths = draft.savedImages || [];
+  if (!imagePaths.length) { log("GBP bỏ qua: bài chỉ có video, Google Business không nhận video."); return { ok: true, skipped: true, links: [] }; }
+  const text = (draft.caption || "").slice(0, 1500);
+  for (const locationId of ids) {
+    try { await postToGBP({ locationId, text, imagePaths, log }); log(`GBP đã đăng business ${locationId}`); }
+    catch (e) { log(`GBP business ${locationId} lỗi: ${e.message}`); throw e; }
+  }
   return { ok: true, links: [] };
 }
 
@@ -54,8 +64,8 @@ export async function publishGbpDraft(draft, route, o = {}) {
 export async function publishDraft(draft, route, o = {}) {
   const log = o.log || (() => {});
   const res = await publishFacebookDraft(draft, route, o);
-  // Đăng GBP song song (nếu route có gbpLocationId + session đã lưu)
-  if (route.gbpLocationId) {
+  // Đăng GBP song song (nếu route có business + bài có ảnh)
+  if (gbpIdsOf(draft, route).length) {
     publishGbpDraft(draft, route, { log })
       .then(() => log("✅ GBP: đăng xong"))
       .catch((e) => log("⚠️ GBP lỗi (FB vẫn thành công): " + e.message));
