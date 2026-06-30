@@ -558,26 +558,27 @@ async function render(){const fn={drafts:renderDrafts,live:renderLive,posted:ren
  catch(e){if(e.message==='Phiên hết hạn')return;$('#'+cur).innerHTML=`<div class="card"><div class="errstate"><b>Không tải được dữ liệu</b><div>${esc(e.message)}</div><div class="row" style="justify-content:center;margin-top:14px"><button class="btn-ghost" onclick="render()">Thử lại</button></div></div></div>`}}
 
 async function setupBanner(){
+ if(localStorage.getItem('hideSetup'))return '';
  let st=window._st||{};try{st=await api('/api/status');window._st=st}catch(e){}
  const routes=st.routes||[];
  const configuredRoutes=routes.filter(r=>r&&r.threadId&&r.fanpageId&&r.enabled!==false);
  let hasToken=configuredRoutes.some(r=>r.hasToken);
  if(!hasToken){try{const t=await api('/api/token');hasToken=!!t.appId&&!!t.hasSecret&&t.pages&&t.pages.some(p=>p.hasToken)}catch(e){}}
  const hasConfiguredRoute=configuredRoutes.length>0;
- const hasAnyRoute=routes.some(r=>r&&r.threadId&&r.fanpageId);
  const hasWork=(st.pendingCount||0)>0;
- const s3=hasConfiguredRoute;
+ const s1=!!st.zaloConnected;               // bước 1 = Zalo THỰC SỰ đã kết nối
  const s2=hasToken||hasConfiguredRoute;
- const s1=hasConfiguredRoute||hasAnyRoute||hasWork;
- if(hasConfiguredRoute&&s2)return '';
+ const s3=hasConfiguredRoute;
+ if(s1&&s2&&s3)return '';                    // xong cả 3 -> tự ẩn
  const step=(done,num,title,desc,key,btn)=>`<div class="setup-step${done?' done':''}"><div class="setup-num">${done?ic('check',17):num}</div><div class="setup-body"><b>${title}</b><span>${desc}</span></div>${done?'<span class="pill on">Xong</span>':`<button class="btn-ghost" onclick="tab('${key}')">${btn}</button>`}</div>`;
- return `<div class="card setup-card"><div class="card-head"><b>Bắt đầu — 3 bước thiết lập</b></div>
+ return `<div class="card setup-card"><div class="card-head"><b>Bắt đầu — 3 bước thiết lập</b><button class="btn-quiet" style="margin-left:auto" onclick="hideSetup()">Ẩn hướng dẫn</button></div>
   <p class="muted" style="margin:0 0 12px">Làm theo thứ tự, mỗi bước một lần. Xong cả 3 là bot tự gom ảnh và đưa bài vào đây để bạn duyệt.</p>
   ${step(s1,'1','Kết nối Zalo','Đăng nhập tài khoản Zalo đã ở trong nhóm cần lấy ảnh','settings','Mở Cài đặt')}
   ${step(s2,'2','Cấp Token Facebook','Cho phép hệ thống đăng bài lên Trang Facebook','token','Mở Token')}
   ${step(s3,'3','Nối Nhóm → Trang','Chọn nhóm Zalo nào sẽ đăng tới Trang Facebook nào','routes','Mở Nhóm → Trang')}
   </div>`;
 }
+function hideSetup(){localStorage.setItem('hideSetup','1');render()}
 function statusPill(status,published){
  if(status==='posted')return published===false?`<span class="pill off">Nháp Facebook</span>`:`<span class="pill on">Đã công khai</span>`;
  if(status==='rejected')return `<span class="pill off">Đã bỏ</span>`;
