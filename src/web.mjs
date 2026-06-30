@@ -8,7 +8,7 @@ import { publishFacebookDraft, publishGbpDraft } from "./publish.mjs";
 import { publishPost, editPost, deletePost, postIdFromLink } from "./facebook.mjs";
 import { exchangeLongLivedUser, listUserPages, debugToken, setEnvVar, derivePageToken } from "./fbtoken.mjs";
 import { loadPages, savePages, envNameFor } from "./pages.mjs";
-import { beginGBPLogin, cancelGBPLogin, finishGBPLogin, gbpLoginStatus, inspectGbpSession, loadGbpBusinesses, saveGbpBusinesses } from "./gbp.mjs";
+import { beginGBPLogin, cancelGBPLogin, finishGBPLogin, gbpLoginStatus, inspectGbpSession, loadGbpBusinesses, saveGbpBusinesses, importGbpSession } from "./gbp.mjs";
 import { loadConfig, routeForThread } from "./config.mjs";
 import { dataPath, CRED_FILE, QR_FILE, saveToken, removeToken } from "./paths.mjs";
 
@@ -688,6 +688,14 @@ export function startWeb(ctx = {}) {
       store.pushLog("Google Business: đã hủy phiên đăng nhập Playwright.");
       res.json(r);
     } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+  // Tải session lên (đăng nhập Google ở máy local -> upload file data/gbp-session.json)
+  app.post("/api/gbp/session/upload", requireAuth, (req, res) => {
+    try {
+      const session = importGbpSession(req.body?.session);
+      store.pushLog("Google Business: đã tải session lên (từ máy local).");
+      res.json({ ok: true, session });
+    } catch (e) { res.status(400).json({ error: e.message }); }
   });
   app.get("/api/gbp/businesses", requireAuth, (req, res) => res.json(loadGbpBusinesses()));
   app.post("/api/gbp/businesses", requireAuth, (req, res) => {

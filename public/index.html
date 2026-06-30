@@ -1044,12 +1044,17 @@ async function renderGbp(){const s=await api('/api/gbp/status');window._gbps=s.b
    <button class="btn-primary" onclick="gbpStartLogin()">${sess.hasSession?'Cập nhật session':'Mở Playwright đăng nhập'}</button>
    ${login.active?`<button class="btn-success" onclick="gbpSaveLogin()">Lưu session sau khi đăng nhập</button><button class="btn-danger" onclick="gbpCancelLogin()">Hủy</button><span class="cardmsg busy"><span class="spin"></span>Đang mở trình duyệt Google</span>`:''}
   </div>
-  <p class="field-help" style="margin-top:8px">Sau khi bấm mở, đăng nhập trong cửa sổ Chrome vừa hiện. Khi vào được Google Account hoặc trang Business, quay lại đây bấm <b>Lưu session</b>.</p></div>
+  <p class="field-help" style="margin-top:8px">Nút trên chỉ chạy được ở <b>máy có màn hình</b> (local). Sau khi bấm mở, đăng nhập trong cửa sổ Chrome vừa hiện rồi bấm <b>Lưu session</b>.</p>
+  <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+   <b style="font-size:var(--fs-sm)">Tải session lên (cho máy chủ / VPS không màn hình)</b>
+   <p class="field-help" style="margin:4px 0 8px">VPS không mở được trình duyệt đăng nhập. Ở <b>máy local</b> chạy <code>npm run gbp:login</code> để đăng nhập Google → sinh file <code>data/gbp-session.json</code>. Chọn file đó để tải lên đây:</p>
+   <input type="file" accept="application/json,.json" onchange="gbpUploadSession(this)">
+  </div></div>
  <div class="card"><div class="card-head"><b>Hồ sơ Google Business</b>${editing?'<button class="btn-ghost" onclick="gbpCancelEditBiz()">Đóng chỉnh sửa</button>':'<button class="btn-ghost" onclick="gbpEditBiz()">Chỉnh sửa</button>'}</div>
   <p class="muted" style="margin:0 0 10px">Lưu tên và Business/Profile ID một lần. Sau đó tab <b>Nhóm → Trang</b> sẽ chọn bằng dropdown, không cần nhập số lại.</p>
   <div id="gbpBizRows">${editing?(rows.length?rows.map((b,i)=>gbpBizRow(b,i)).join(''):'<p class="empty" style="padding:20px">Chưa có hồ sơ nào. Bấm “Thêm hồ sơ” để lưu ID Google Business.</p>'):(rows.length?gbpBizTable(rows):'<p class="empty" style="padding:20px">Chưa có hồ sơ nào. Bấm <b>Chỉnh sửa</b> để thêm ID Google Business.</p>')}</div>
   <div class="row" style="margin-top:12px">${editing?'<button class="btn-ghost" onclick="gbpAddBiz()">+ Thêm hồ sơ</button><button class="btn-primary" onclick="gbpSaveBiz()">Lưu danh sách</button>':''}<span class="muted" id="gbpmsg" role="status" aria-live="polite"></span></div>
-  <p class="field-help" style="margin-top:8px">ID là số bạn thấy trong Advanced settings của Google Business, ví dụ <b>18016520926160681517</b>.</p></div>`;
+  <p class="field-help" style="margin-top:8px">ID là số bạn thấy trong Advanced settings của Google Business (chuỗi số dài).</p></div>`;
 }
 function gbpExpiryText(ms,expired){
  if(!ms)return '<span class="muted">Không xác định</span>';
@@ -1060,7 +1065,7 @@ function gbpExpiryText(ms,expired){
 }
 function gbpBizRow(b,i){return `<div class="row gbprow" data-gbp-row style="align-items:flex-start;margin-bottom:10px">
  <div class="fieldset"><label>Tên hiển thị</label><input data-gbp-name value="${esc(b.name||'')}" placeholder="VD: Trường Việt Anh"></div>
- <div class="fieldset"><label>Business/Profile ID</label><input data-gbp-id value="${esc(b.id||'')}" placeholder="VD: 18016520926160681517"></div>
+ <div class="fieldset"><label>Business/Profile ID</label><input data-gbp-id value="${esc(b.id||'')}" placeholder="VD: 1234567890..."></div>
  <button class="btn-danger" onclick="this.closest('[data-gbp-row]').remove()">Xóa</button></div>`}
 function gbpBizTable(rows){return `<div class="table-wrap"><table><thead><tr><th>Tên hiển thị</th><th>Business/Profile ID</th></tr></thead><tbody>${rows.map(b=>`<tr><td>${esc(b.name||'—')}</td><td class="muted">${esc(b.id)}</td></tr>`).join('')}</tbody></table></div>`}
 function gbpEditBiz(){window._gbpEditing=true;renderGbp()}
@@ -1070,6 +1075,9 @@ function gbpCollectBiz(){return [...document.querySelectorAll('[data-gbp-row]')]
 async function gbpSaveBiz(){const msg=$('#gbpmsg');if(msg)msg.textContent='Đang lưu…';
  try{const r=await api('/api/gbp/businesses','POST',{businesses:gbpCollectBiz()});window._gbps=r.businesses;window._gbpEditing=false;toast('Đã lưu Google Business');if(msg)msg.textContent='Đã lưu '+r.businesses.length+' hồ sơ';renderGbp()}
  catch(e){if(msg)msg.textContent='Lỗi: '+e.message}}
+async function gbpUploadSession(input){const f=input.files&&input.files[0];if(!f)return;
+ try{const session=JSON.parse(await f.text());await api('/api/gbp/session/upload','POST',{session});toast('Đã tải session lên — Google Business sẵn sàng');renderGbp()}
+ catch(e){toast('Lỗi: '+(e.message||'file không hợp lệ'))}finally{input.value=''}}
 async function gbpStartLogin(){try{await api('/api/gbp/login/start','POST');toast('Đã mở trình duyệt Google');renderGbp()}catch(e){toast('Lỗi: '+e.message)}}
 async function gbpSaveLogin(){try{await api('/api/gbp/login/save','POST');toast('Đã lưu session Google Business');renderGbp()}catch(e){toast('Lỗi: '+e.message)}}
 async function gbpCancelLogin(){try{await api('/api/gbp/login/cancel','POST');toast('Đã hủy phiên đăng nhập');renderGbp()}catch(e){toast('Lỗi: '+e.message)}}
