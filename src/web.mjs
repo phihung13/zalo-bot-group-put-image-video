@@ -930,7 +930,8 @@ export function startWeb(ctx = {}) {
   app.get("/api/logs", requireAuth, (req, res) => res.json(store.getLogs().slice(-200).reverse()));
 
   // ===== Trang dashboard =====
-  app.get("/", (req, res) => res.sendFile(PAGE_FILE));
+  // no-store: mỗi lần deploy dashboard mới -> trình duyệt lấy bản mới NGAY, khỏi phải hard-refresh.
+  app.get("/", (req, res) => { res.set("Cache-Control", "no-store, must-revalidate"); res.sendFile(PAGE_FILE); });
 
   const PORT = Number(process.env.WEB_PORT || 8080);
   const server = app.listen(PORT, () => console.log(`🌐 Web dashboard: http://localhost:${PORT}`));
