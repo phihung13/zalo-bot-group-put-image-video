@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Auto-Post · Zalo → Facebook</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJnIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjMGY3ZDhjIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMmFhN2IzIi8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0idXJsKCNnKSIvPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDQgNCkiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLXdpZHRoPSIyLjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHBhdGggZD0ibTIyIDItNyAyMC00LTktOS00WiIvPjxwYXRoIGQ9Ik0yMiAyIDExIDEzIi8+PC9nPjwvc3ZnPg==">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -326,6 +327,9 @@ body.modal-lock{overflow:hidden}
   .row{gap:8px}
   /* Bài nháp & thẻ chiếm trọn bề ngang điện thoại */
   .fbpost{max-width:none}
+  /* Thanh lọc "Mục phụ trách": nhãn trên, dropdown full-width dễ chạm 1 tay */
+  .post-pagefilter{gap:6px}
+  .post-pagefilter select{flex:1 1 100%;width:100%!important;min-width:0}
   /* Vùng chạm ≥44px */
   button,.nav button,.sw{min-height:var(--tap)}
   input:not([type=checkbox]),textarea,select{min-height:var(--tap);font-size:16px}
