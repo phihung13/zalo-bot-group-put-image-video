@@ -650,7 +650,12 @@ export function startWeb(ctx = {}) {
       if (r.enabled === false) continue;
       const s = byThread[String(r.threadId)];
       // Luôn lấy thời gian theo CẤU HÌNH hiện tại (loadConfig đọc routes.json mới), không dùng giá trị đã chụp lúc bắt đầu phiên
-      if (s) { threads.push({ ...s, label: r.label, debounceMs: r.debounceMs, maxWaitMs: r.maxWaitMs }); }
+      if (s) {
+        let st = { ...s, label: r.label, debounceMs: r.debounceMs, maxWaitMs: r.maxWaitMs };
+        // Bản nháp đã được xử lý (duyệt/xóa/từ chối -> rời hàng chờ) => không hiện "Đã tạo bản nháp" nữa, về chờ ảnh.
+        if (st.phase === "done" && st.proc && st.proc.draftId && !store.getPending(st.proc.draftId)) st = { ...st, phase: "idle", proc: null, doneAt: 0 };
+        threads.push(st);
+      }
       else threads.push({ threadId: String(r.threadId), label: r.label, phase: "idle", counts: { image: 0, video: 0, text: 0 }, events: [], startedAt: 0, lastEventAt: 0, debounceMs: r.debounceMs, maxWaitMs: r.maxWaitMs, proc: null, doneAt: 0 });
     }
     res.json({ connected: !!(ctx.status && ctx.status.zaloConnected), serverNow: Date.now(), threads });
