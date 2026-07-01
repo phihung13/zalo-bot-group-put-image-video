@@ -578,15 +578,14 @@ export function startWeb(ctx = {}) {
       res.json(filterGroups(await _groupsPromise));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
-  // Xem TẤT CẢ nhóm (kể cả nhóm riêng) — KHÓA bằng mật khẩu dashboard.
+  // Xem TẤT CẢ nhóm (kể cả nhóm riêng) — KHÓA bằng mật khẩu dashboard. LẤY MỚI (thấy nhóm vừa tạo).
   app.post("/api/zalo/groups/reveal", requireAuth, async (req, res) => {
     if (String(req.body?.pass || "") !== PASS) return res.status(403).json({ error: "Sai mật khẩu" });
     const zalo = ctx.getZalo && ctx.getZalo();
-    if (_groupsCache) return res.json(_groupsCache);
     if (!zalo) return res.status(503).json({ error: "Zalo chưa kết nối" });
     try {
-      if (!_groupsPromise) _groupsPromise = refreshGroups(zalo).finally(() => { _groupsPromise = null; });
-      res.json(await _groupsPromise);
+      const list = await refreshGroups(zalo); // luôn lấy mới -> nhóm vừa tạo hiện ra
+      res.json(list);
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
