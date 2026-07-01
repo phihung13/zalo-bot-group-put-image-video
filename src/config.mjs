@@ -40,7 +40,12 @@ export function loadConfig(file = process.env.ROUTES_FILE || DEFAULT_FILE) {
       enabled: r.enabled !== false, // false = tạm tắt nhóm này
       comment: r.comment || "", // comment đầu tự động (SĐT/địa chỉ...)
       captionFooter: r.captionFooter || "", // chân bài cố định (hotline/địa chỉ) chèn cuối caption
-      styleSample: r.styleSample || "", // bài mẫu giọng văn của Trang (AI học theo) — nhập trong dashboard
+      folder: (r.folder || "").trim(), // "mục" phân loại (VD tên nhân viên/thương hiệu) để lọc bài trên dashboard
+      // Hướng dẫn viết cho Trang: CHỈ THỊ (phong cách, xưng hô, campaign, lead magnet, chương trình) để AI tùy biến.
+      // writeGuide là tên mới; đọc lại styleSample cũ để tương thích ngược.
+      writeGuide: (r.writeGuide ?? r.styleSample ?? "").toString(),
+      styleSample: r.styleSample || "", // (cũ) giữ để tương thích ngược
+      autoHashtags: r.autoHashtags !== false, // mặc định BẬT: AI tự thêm 5 hashtag cuối bài
       gbpLocationIds: gbpIds,            // NHIỀU GBP business; rỗng = không đăng GBP
       gbpLocationId: gbpIds[0] || "",    // tương thích ngược (1 ID)
     });

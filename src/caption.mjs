@@ -40,14 +40,90 @@ const SYSTEM = [
   "Tập trung vào điều QUAN SÁT ĐƯỢC chắc chắn: sự chăm chú, đôi tay tỉ mỉ, nụ cười, niềm vui, sự sáng tạo, không khí lớp học.",
   "Thà viết chung chung còn hơn nói sai chi tiết. Không thêm chi tiết không nhìn thấy rõ.",
   "KHÔNG dùng định dạng markdown: không dùng ** hay * để in đậm/nghiêng — Facebook sẽ hiện nguyên ký tự đó, rất xấu.",
-  // Xưng hô thân mật:
-  "Xưng hô thân mật như cô giáo gọi học trò của mình: ưu tiên 'con', 'các con' thay cho 'bé', 'bé trai', 'bé gái', 'các bé', 'em' (nghe xa cách như người lạ).",
+  // Xưng hô thân mật (MẶC ĐỊNH — có thể bị Hướng dẫn riêng của Trang ghi đè):
+  "MẶC ĐỊNH xưng hô thân mật như cô giáo gọi học trò: ưu tiên 'con', 'các con' thay cho 'bé', 'em'.",
+  "NHƯNG nếu có HƯỚNG DẪN riêng của Trang chỉ định cách xưng hô/phong cách khác thì PHẢI theo Hướng dẫn của Trang.",
   "Dùng tự nhiên, linh hoạt — KHÔNG thay máy móc/lặp cứng nhắc; cốt sao câu mượt và ấm áp.",
 ].join(" ");
 
 /** Bỏ ký tự markdown (**, *, __) — Facebook không hiểu, hiện ra ký tự thừa. */
 export function stripMarkdown(s) {
   return String(s || "").replace(/\*+/g, "").replace(/__+/g, "").replace(/[ \t]{2,}/g, " ").trim();
+}
+
+// ===== Ráp caption theo THỨ TỰ: thân bài → chân bài (hotline/địa chỉ) → hashtag (dưới cùng) =====
+
+/** Ghép 3 phần thành 1 caption, mỗi phần cách nhau 1 dòng trống. Bỏ phần rỗng. */
+export function assembleCaption(body, footer, hashtags) {
+  return [String(body || "").trimEnd(), String(footer || "").trim(), String(hashtags || "").trim()]
+    .filter(Boolean).join("\n\n");
+}
+
+/** Bóc phần đuôi (hashtag rồi tới chân bài) ra khỏi caption -> còn lại THÂN BÀI. */
+export function stripCaptionTail(caption, footer, hashtags) {
+  let s = String(caption || "");
+  const tags = String(hashtags || "").trim();
+  if (tags && s.trimEnd().endsWith(tags)) s = s.trimEnd().slice(0, -tags.length).trimEnd();
+  const f = String(footer || "").trim();
+  if (f && s.trimEnd().endsWith(f)) s = s.trimEnd().slice(0, -f.length).trimEnd();
+  return s;
+}
+
+/** Đổi chân bài/hashtag ở đuôi caption (giữ nguyên thân bài, kể cả khi đã sửa tay). */
+export function reapplyTail(caption, oldFooter, oldHashtags, newFooter, newHashtags) {
+  return assembleCaption(stripCaptionTail(caption, oldFooter, oldHashtags), newFooter, newHashtags);
+}
+
+const stripDiacritics = (s) =>
+  String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D");
+
+/** Chuẩn hoá mảng hashtag từ AI -> chuỗi "#a #b ..." sạch (không dấu, không cách, không trùng). */
+export function formatHashtags(arr, count = 5) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of arr || []) {
+    let t = stripDiacritics(String(raw || "").trim()).replace(/\s+/g, "");
+    t = "#" + t.replace(/^#+/, "").replace(/[^A-Za-z0-9_]/g, "");
+    const key = t.toLowerCase();
+    if (t.length > 1 && !seen.has(key)) { seen.add(key); out.push(t); }
+    if (out.length >= count) break;
+  }
+  return out.join(" ");
+}
+
+/**
+ * Sinh `count` hashtag bám nội dung bài + định hướng của Trang. Trả về chuỗi "#a #b..." hoặc "" nếu lỗi/tắt AI.
+ * KHÔNG dùng SYSTEM (SYSTEM ép viết CÓ DẤU — hashtag lại cần KHÔNG dấu).
+ */
+export async function generateHashtags(context, { guide = "", count = 5, log = () => {} } = {}) {
+  const src = String(context || "").trim();
+  if (!hasApiKey() || !src) return "";
+  try {
+    const client = new Anthropic();
+    const instruction = [
+      `Đọc bài đăng Facebook dưới đây rồi tạo đúng ${count} hashtag bám CHỦ ĐỀ bài + lĩnh vực/thương hiệu của Trang.`,
+      guide ? ("ĐỊNH HƯỚNG CỦA TRANG (bám để chọn hashtag đúng thương hiệu/chương trình):\n" + String(guide).slice(0, 1200)) : "",
+      "Bài đăng:\n" + src.slice(0, 2000),
+      [
+        "Quy tắc:",
+        "- Mỗi hashtag KHÔNG dấu cách, viết liền hoặc CamelCase (VD: #MamNonVietAnh, #BeVuiHoc, #GiaoDucSom).",
+        "- BỎ dấu tiếng Việt trong hashtag.",
+        "- 1–2 hashtag mang tính thương hiệu/khu vực (nếu suy ra được), còn lại bám nội dung bài.",
+        "- KHÔNG trùng lặp, KHÔNG emoji.",
+      ].join("\n"),
+      `Trả về JSON {"hashtags":[...]} đúng ${count} phần tử, mỗi phần tử bắt đầu bằng #.`,
+    ].filter(Boolean).join("\n\n");
+    const resp = await client.messages.create({
+      model: MODEL, max_tokens: 300,
+      output_config: { format: { type: "json_schema", schema: { type: "object", properties: { hashtags: { type: "array", items: { type: "string" } } }, required: ["hashtags"], additionalProperties: false } } },
+      messages: [{ role: "user", content: instruction }],
+    });
+    if (resp.stop_reason === "refusal") return "";
+    const txt = resp.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+    let arr = [];
+    try { arr = JSON.parse(txt).hashtags || []; } catch { arr = []; }
+    return formatHashtags(arr, count);
+  } catch (e) { log(`generateHashtags lỗi: ${e.message}`); return ""; }
 }
 
 /** Gửi 1 bộ ảnh + chỉ dẫn cho Claude vision -> text. null nếu lỗi/từ chối. */
@@ -66,15 +142,16 @@ async function askVision(buffers, instruction, { maxTokens = 400, log = () => {}
 }
 
 /** Viết LẠI 1 caption cho hấp dẫn hơn (giữ thông tin chính + giữ nguyên khối liên hệ cuối bài). null nếu lỗi/tắt AI. */
-export async function rewriteCaption(text, { styleGuide = "", log = () => {} } = {}) {
+export async function rewriteCaption(text, { guide = "", styleGuide = "", log = () => {} } = {}) {
   const src = String(text || "").trim();
+  const hint = String(guide || styleGuide || "").trim(); // guide mới; styleGuide cũ để tương thích
   if (!hasApiKey() || !src) return null;
   try {
     const client = new Anthropic();
     const instruction = [
       "Viết LẠI đoạn caption Facebook dưới đây cho HẤP DẪN, mượt mà, thu hút phụ huynh hơn — nhưng GIỮ nguyên các sự việc/thông tin chính, KHÔNG bịa thêm chi tiết không có trong bản gốc.",
-      "Nếu CUỐI bài có khối thông tin liên hệ (hotline, địa chỉ, hashtag, Google Maps...) thì GIỮ NGUYÊN khối đó, chỉ viết lại phần nội dung phía trên.",
-      styleGuide ? ("Tham khảo GIỌNG VĂN của trang qua bài mẫu sau (chỉ học giọng, KHÔNG lấy nội dung):\n" + String(styleGuide).slice(0, 1500)) : "",
+      "Nếu CUỐI bài có khối liên hệ (hotline, địa chỉ, Google Maps) và/hoặc hashtag thì GIỮ NGUYÊN toàn bộ phần đuôi đó, chỉ viết lại phần THÂN BÀI phía trên.",
+      hint ? ("ÁP DỤNG HƯỚNG DẪN RIÊNG của Trang khi viết lại (phong cách, cách xưng hô, chương trình/campaign, lead magnet). Đây là CHỈ THỊ, không phải bài để chép:\n" + hint.slice(0, 1500)) : "",
       "Caption gốc:\n" + src,
       "Chỉ trả về CAPTION mới, không giải thích, không tiền tố.",
     ].filter(Boolean).join("\n\n");
@@ -165,7 +242,7 @@ export async function captionFromFrames(frameBuffers, opts = {}) {
 export async function writeCaption(batch, o = {}) {
   const texts = batch?.texts || [];
   const noteText = combineTexts(texts);
-  const styleGuide = (o.styleGuide || "").trim(); // bài mẫu của trang -> AI bắt chước giọng
+  const guide = (o.guide ?? o.styleGuide ?? "").toString().trim(); // HƯỚNG DẪN viết của Trang (chỉ thị, không phải bài mẫu)
   const maxImages = o.maxImages || 6;
 
   // gom buffer ảnh (chỉ ảnh; video bỏ qua phần nhìn)
@@ -186,12 +263,13 @@ export async function writeCaption(batch, o = {}) {
         (noteText
           ? `\n\nGHI CHÚ CỦA GIÁO VIÊN (nguồn thông tin CHÍNH, ĐÁNG TIN — hãy bám theo):\n"""${noteText}"""`
           : "\n\n(Không có ghi chú kèm theo.)") +
-        (styleGuide
-          ? `\n\nViết MỘT bài đăng Facebook MỚI cho bộ ảnh hôm nay, theo ĐÚNG PHONG CÁCH của trang này.` +
-            `\nDưới đây là BÀI MẪU THẬT của trang — hãy bám sát GIỌNG VĂN, CẤU TRÚC (tiêu đề/mở bài/thân/kết), cách dùng EMOJI và độ dài Y NHƯ mẫu:` +
-            `\n\n=== BÀI MẪU ===\n${styleGuide}\n=== HẾT MẪU ===` +
-            `\n\n- Viết nội dung MỚI bám ảnh & ghi chú HÔM NAY (chủ đề/hoạt động khác mẫu) — TUYỆT ĐỐI KHÔNG chép nội dung bài mẫu.` +
-            `\n- Bài mẫu có thể kèm phần LIÊN HỆ/ĐỊA CHỈ/HOTLINE/HASHTAG ở cuối — BỎ QUA phần đó, chỉ học PHẦN THÂN BÀI; hệ thống tự chèn liên hệ + hashtag sau.`
+        (guide
+          ? `\n\nViết MỘT bài đăng Facebook MỚI cho bộ ảnh hôm nay, TÙY BIẾN theo HƯỚNG DẪN RIÊNG của Trang này.` +
+            `\nDưới đây là HƯỚNG DẪN của Trang — là CHỈ THỊ (phong cách viết, cách xưng hô, chương trình/campaign đang chạy, lead magnet, lời kêu gọi...), KHÔNG phải bài mẫu để chép:` +
+            `\n\n=== HƯỚNG DẪN CỦA TRANG (BẮT BUỘC BÁM THEO) ===\n${guide}\n=== HẾT HƯỚNG DẪN ===` +
+            `\n\n- Đọc kỹ & ÁP DỤNG đúng hướng dẫn: giọng văn, cách xưng hô, thông điệp, chương trình đang chạy, lời mời/kêu gọi.` +
+            `\n- Nếu hướng dẫn MÂU THUẪN với quy tắc mặc định (vd cách xưng hô), ƯU TIÊN HƯỚNG DẪN của Trang.` +
+            `\n- Nội dung bám ẢNH & GHI CHÚ hôm nay; KHÔNG bịa chi tiết không thấy. KHÔNG tự chèn liên hệ/hashtag ở cuối — hệ thống tự chèn.`
           : `\n\nHãy viết MỘT bài đăng Facebook cho fanpage trường mầm non, theo CẤU TRÚC:` +
             `\n1) DÒNG TIÊU ĐỀ giật tít gửi "ba mẹ", VIẾT HOA phần chính, 1–3 emoji.` +
             `\n2) Đoạn MỞ "Ba mẹ ơi, ..." dẫn vào hoạt động.` +
@@ -203,7 +281,8 @@ export async function writeCaption(batch, o = {}) {
         (noteText
           ? `\n- DÙNG ghi chú giáo viên làm nội dung chính; giáo viên nói gì coi là ĐÚNG (vd hoạt động làm con sứa).`
           : `\n- Không có ghi chú: mô tả TRUNG TÍNH điều thấy chắc, KHÔNG đoán bức vẽ là con/vật gì.`) +
-        `\n- Tiếng Việt CÓ DẤU đầy đủ; ấm áp; xưng "con/các con".` +
+        `\n- Tiếng Việt CÓ DẤU đầy đủ; ấm áp.` +
+        (guide ? `` : `\n- Xưng "con/các con".`) +
         `\n- KHÔNG markdown (không * hay **) — nhấn mạnh bằng VIẾT HOA. KHÔNG khẳng định bức vẽ nếu không nhìn rõ. KHÔNG bịa.` +
         `\n- KHÔNG tự thêm số điện thoại / địa chỉ / tên cơ sở ở cuối — hệ thống tự chèn chân bài. (Hashtag/Google Maps cũng nằm ở chân bài.)` +
         `\n- KHÔNG nhắc đây là AI.` +

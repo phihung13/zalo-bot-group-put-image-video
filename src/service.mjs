@@ -8,6 +8,7 @@ import { extractEvent } from "./extract.mjs";
 import { Batcher, MemoryStore } from "./batcher.mjs";
 import { loadConfig, routeForThread } from "./config.mjs";
 import { processBatch } from "./pipeline.mjs";
+import { assembleCaption } from "./caption.mjs";
 import { publishFacebookDraft, publishGbpDraft } from "./publish.mjs";
 import { startWeb } from "./web.mjs";
 import * as store from "./store.mjs";
@@ -66,7 +67,8 @@ async function main() {
         // CHUẨN BỊ bài (gom -> lọc -> AI chọn -> format -> caption). KHÔNG đăng ở đây.
         const res = await processBatch(batch, reason, {
           log: (m) => console.log("  [pipeline]", m), perItemCaption: true,
-          styleGuide: route.styleSample || "",
+          guide: route.writeGuide || route.styleSample || "",
+          autoHashtags: route.autoHashtags !== false,
           onStage: (stage, extra) => live.processing(batch.threadId, stage, extra),
         });
         if (!res.savedImages.length && !res.savedVideos.length) { live.done(batch.threadId, null); return; }
@@ -82,7 +84,9 @@ async function main() {
           imageCaptions: res.imageCaptions, videoCaptions: res.videoCaptions,
           comment: route.comment || "", published: route.published,
           captionFooter: (route.captionFooter || "").trim(), // lưu để sau đổi chân bài thì cập nhật được
-          caption: res.caption + (route.captionFooter ? "\n\n" + String(route.captionFooter).trim() : ""),
+          hashtags: res.hashtags || "",                       // 5 hashtag AI -> nằm DƯỚI CÙNG (sau chân bài)
+          // Thứ tự: thân bài -> chân bài (hotline/địa chỉ) -> hashtag
+          caption: assembleCaption(res.caption, route.captionFooter, res.hashtags),
           droppedCount: res.droppedCount, createdAt: Date.now(), reason,
           approvals: {
             facebook: { status: "pending" },

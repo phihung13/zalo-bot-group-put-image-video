@@ -6,7 +6,7 @@ import { downloadAll } from "./download.mjs";
 import { curate } from "./curate.mjs";
 import { pickBest } from "./pickbest.mjs";
 import { formatImage, formatVideo, extractFrames } from "./format.mjs";
-import { writeCaption, captionImageSet, captionFromFrames, combineTexts } from "./caption.mjs";
+import { writeCaption, captionImageSet, captionFromFrames, combineTexts, generateHashtags } from "./caption.mjs";
 import { dataPath } from "./paths.mjs";
 
 const sanitize = (s) => String(s).replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -75,9 +75,17 @@ export async function processBatch(batch, reason, opts = {}) {
   onStage("AI đang nghĩ nội dung bài đăng", { kept: savedImages.length });
   const cap = await writeCaption(
     { items: kept.map((k) => ({ kind: "image", buffer: k.buffer })), texts: batch.texts },
-    { log, disableAI: opts.disableAI, styleGuide: opts.styleGuide },
+    { log, disableAI: opts.disableAI, guide: opts.guide },
   );
   fs.writeFileSync(path.join(dir, "caption.txt"), cap.caption || "");
+
+  // 5a) hashtag (AI): 5 cái bám nội dung + định hướng Trang -> service ráp XUỐNG CUỐI (sau chân bài)
+  let hashtags = "";
+  if (opts.autoHashtags !== false && !opts.disableAI) {
+    onStage("AI đang tạo hashtag", {});
+    const noteForTags = combineTexts(batch.texts);
+    hashtags = await generateHashtags([cap.caption, noteForTags].filter(Boolean).join("\n"), { guide: opts.guide, log });
+  }
 
   // 5b) caption RIÊNG từng ảnh + từng video (video: trích khung hình cho AI "xem")
   const perItem = opts.perItemCaption !== false && !opts.disableAI;
@@ -98,6 +106,7 @@ export async function processBatch(batch, reason, opts = {}) {
   preview.push("📋 ========== BẢN NHÁP ==========");
   preview.push(`(nhóm ${batch.threadId} — ${reason})`);
   preview.push(`📝 Caption bài:\n${cap.caption}`);
+  if (hashtags) preview.push(`#️⃣ Hashtag: ${hashtags}`);
   savedImages.forEach((f, i) => preview.push(`🖼️  Ảnh ${i + 1}: ${imageCaptions[i] || "(không có)"}`));
   savedVideos.forEach((f, i) => preview.push(`🎬 Video ${i + 1}: ${videoCaptions[i] || "(không có)"}`));
   preview.push(`📁 File: ${dir}`);
@@ -128,5 +137,5 @@ export async function processBatch(batch, reason, opts = {}) {
 
   onStage("Đã tạo bản nháp", { kept: savedImages.length, videos: savedVideos.length, dropped: dropped.length, caption: cap.caption });
 
-  return { dir, savedImages, savedVideos, imageCaptions, videoCaptions, caption: cap.caption, captionSource: cap.source, droppedCount: dropped.length, fbLinks, reason };
+  return { dir, savedImages, savedVideos, imageCaptions, videoCaptions, caption: cap.caption, captionSource: cap.source, hashtags, droppedCount: dropped.length, fbLinks, reason };
 }
