@@ -589,15 +589,23 @@ function statusPill(status,published){
  return `<span class="chip">Chờ duyệt</span>`;
 }
 let _postFilter=localStorage.getItem('postFilter')||'needs';
+let _pageFilter=localStorage.getItem('pageFilter')||'';
 async function renderDrafts(){const all=await api('/api/posts');const el=$('#drafts');const banner=await setupBanner();
- const needs=all.filter(d=>d.queueStatus==='pending');
- const done=all.filter(d=>d.queueStatus!=='pending');
+ if(window._fbpages===undefined){ensureFbPages().then(()=>{if(cur==='drafts')renderDrafts()})} // nạp tên Trang cho folder
+ // Folder theo Trang: gom Trang có trong bài
+ const pageMap={};all.forEach(d=>{if(d.fanpageId){const p=(window._fbpages||[]).find(x=>String(x.fanpageId)===String(d.fanpageId));pageMap[String(d.fanpageId)]=(p&&p.name)?p.name:(d.routeLabel||('Trang '+d.fanpageId))}});
+ const pageList=Object.entries(pageMap);
+ if(_pageFilter&&!pageMap[_pageFilter])_pageFilter='';
+ const inScope=_pageFilter?all.filter(d=>String(d.fanpageId)===String(_pageFilter)):all;
+ const needs=inScope.filter(d=>d.queueStatus==='pending');
+ const done=inScope.filter(d=>d.queueStatus!=='pending');
  if(_postFilter==='needs'&&!needs.length&&done.length)_postFilter='all';
- const ds=_postFilter==='needs'?needs:(_postFilter==='done'?done:all);
- const toolbar=`<div class="post-toolbar">
+ const ds=_postFilter==='needs'?needs:(_postFilter==='done'?done:inScope);
+ const toolbar=`${pageList.length>1?`<div class="post-pagefilter" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="muted" style="font-size:var(--fs-sm);font-weight:600">${ic('routes',15)} Trang phụ trách:</span><select onchange="setPageFilter(this.value)" style="width:auto;min-width:190px"><option value="">— Tất cả Trang —</option>${pageList.map(([fid,name])=>`<option value="${esc(fid)}" ${_pageFilter===fid?'selected':''}>${esc(name)}</option>`).join('')}</select>${_pageFilter?`<span class="chip">đang xem 1 Trang</span>`:''}</div>`:''}
+ <div class="post-toolbar">
   <div class="post-tabs" role="tablist" aria-label="Lọc bài viết">
    <button class="${_postFilter==='needs'?'active':''}" onclick="setPostFilter('needs')">Cần xử lý ${needs.length?`(${needs.length})`:''}</button>
-   <button class="${_postFilter==='all'?'active':''}" onclick="setPostFilter('all')">Tất cả ${all.length?`(${all.length})`:''}</button>
+   <button class="${_postFilter==='all'?'active':''}" onclick="setPostFilter('all')">Tất cả ${inScope.length?`(${inScope.length})`:''}</button>
    <button class="${_postFilter==='done'?'active':''}" onclick="setPostFilter('done')">Đã xong ${done.length?`(${done.length})`:''}</button>
   </div>
   <div class="post-stats"><span class="pill ${needs.length?'off':'on'}">${needs.length?needs.length+' cần xử lý':'Không còn chờ'}</span><span class="chip">${done.length} đã xong</span></div>
@@ -717,6 +725,7 @@ async function aiRewrite(id){const e=$('#edit_'+id);if(e){e.classList.remove('hi
  try{const r=await api('/api/pending/'+id+'/rewrite','POST',{caption:ta.value});ta.value=r.caption;if(m)m.textContent='✓ Đã viết lại — xem lại rồi bấm Lưu sửa';toast('AI đã viết lại — xem trong khu Sửa, ưng thì Lưu sửa');}
  catch(e){if(m)m.textContent='';toast('Lỗi: '+e.message)}}
 function setPostFilter(f){_postFilter=f;localStorage.setItem('postFilter',f);_sel.clear();renderDrafts()}
+function setPageFilter(v){_pageFilter=v;localStorage.setItem('pageFilter',v);_sel.clear();renderDrafts()}
 function toggleCaption(id){const text=$('#capview_'+id),btn=$('#capmore_'+id);if(!text||!btn)return;
  const expanded=!text.classList.toggle('clamped');
  btn.textContent=expanded?'thu gọn':'xem thêm';
