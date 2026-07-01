@@ -593,20 +593,25 @@ let _postFilter=localStorage.getItem('postFilter')||'needs';
 let _pageFilter=localStorage.getItem('folderFilter')||localStorage.getItem('pageFilter')||'';
 async function renderDrafts(){const all=await api('/api/posts');const el=$('#drafts');const banner=await setupBanner();
  if(window._fbpages===undefined){ensureFbPages().then(()=>{if(cur==='drafts')renderDrafts()})} // nạp tên Trang cho fallback folder
+ if(window._st===undefined){try{window._st=await api('/api/status')}catch(e){}} // cần routes[].folder để dựng bộ lọc Mục
  // MỤC/FOLDER phụ trách: ưu tiên "Mục" cấu hình ở Nhóm→Trang (gom nhiều Trang cho 1 người); nếu trống -> dùng tên Trang.
  const routes=(window._st&&window._st.routes)||[];
  const folderByThread={};routes.forEach(r=>{if(r&&r.threadId)folderByThread[String(r.threadId)]=(r.folder||'').trim()});
  const pageNameOf=(d)=>{const p=(window._fbpages||[]).find(x=>String(x.fanpageId)===String(d.fanpageId));return (p&&p.name)?p.name:(d.routeLabel||(d.fanpageId?('Trang '+d.fanpageId):'Khác'))};
  const folderOf=(d)=>folderByThread[String(d.threadId)]||pageNameOf(d);
- const folderMap={};all.forEach(d=>{const f=folderOf(d);if(f)folderMap[f]=f});
- const pageList=Object.keys(folderMap).sort((a,b)=>a.localeCompare(b,'vi')).map(f=>[f,f]);
- if(_pageFilter&&!folderMap[_pageFilter])_pageFilter='';
+ // Danh sách mục = mục cấu hình ở Nhóm→Trang (kể cả chưa có bài) + mục suy ra từ bài đã có.
+ const cfgFolders=routes.map(r=>((r&&r.folder)||'').trim()).filter(Boolean);
+ const optSet={};all.forEach(d=>{const f=folderOf(d);if(f)optSet[f]=1});cfgFolders.forEach(f=>{optSet[f]=1});
+ const pageList=Object.keys(optSet).sort((a,b)=>a.localeCompare(b,'vi')).map(f=>[f,f]);
+ // Hiện bộ lọc khi có ≥2 mục HOẶC đã cấu hình ít nhất 1 mục (để thấy ngay khi vừa thiết lập).
+ const showFolderFilter=pageList.length>1||cfgFolders.length>0;
+ if(_pageFilter&&!optSet[_pageFilter])_pageFilter='';
  const inScope=_pageFilter?all.filter(d=>folderOf(d)===_pageFilter):all;
  const needs=inScope.filter(d=>d.queueStatus==='pending');
  const done=inScope.filter(d=>d.queueStatus!=='pending');
  if(_postFilter==='needs'&&!needs.length&&done.length)_postFilter='all';
  const ds=_postFilter==='needs'?needs:(_postFilter==='done'?done:inScope);
- const toolbar=`${pageList.length>1?`<div class="post-pagefilter" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="muted" style="font-size:var(--fs-sm);font-weight:600">${ic('routes',15)} Mục phụ trách:</span><select onchange="setPageFilter(this.value)" style="width:auto;min-width:190px"><option value="">— Tất cả mục —</option>${pageList.map(([fid,name])=>`<option value="${esc(fid)}" ${_pageFilter===fid?'selected':''}>${esc(name)}</option>`).join('')}</select>${_pageFilter?`<span class="chip">đang xem: ${esc(_pageFilter)}</span>`:''}</div>`:''}
+ const toolbar=`${showFolderFilter?`<div class="post-pagefilter" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="muted" style="font-size:var(--fs-sm);font-weight:600">${ic('routes',15)} Mục phụ trách:</span><select onchange="setPageFilter(this.value)" style="width:auto;min-width:190px"><option value="">— Tất cả mục —</option>${pageList.map(([fid,name])=>`<option value="${esc(fid)}" ${_pageFilter===fid?'selected':''}>${esc(name)}</option>`).join('')}</select>${_pageFilter?`<span class="chip">đang xem: ${esc(_pageFilter)}</span>`:''}</div>`:''}
  <div class="post-toolbar">
   <div class="post-tabs" role="tablist" aria-label="Lọc bài viết">
    <button class="${_postFilter==='needs'?'active':''}" onclick="setPostFilter('needs')">Cần xử lý ${needs.length?`(${needs.length})`:''}</button>
