@@ -468,6 +468,7 @@ const ICON={
  sparkles:'<path d="M9.94 4.66 11 2l1.06 2.66L14.7 5.7 12 6.78 11 9.5 9.94 6.78 7.3 5.7Z"/><path d="M19 11l.7 1.8 1.8.7-1.8.7L19 16l-.7-1.8-1.8-.7 1.8-.7Z"/><path d="M5 13l.7 1.8 1.8.7-1.8.7L5 18l-.7-1.8L2.5 15.5l1.8-.7Z"/>',
  repeat:'<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
  clock:'<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+ image:'<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
  ext:'<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
  refresh:'<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/>',
  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
@@ -702,8 +703,9 @@ async function renderDrafts(){const all=await api('/api/posts');const el=$('#dra
    ${inPending?`<div class="fbedit hide" id="edit_${d.id}">
     <p class="section-title">Sửa nội dung bài</p>
     <textarea id="cap_${d.id}" aria-label="Nội dung bài">${esc(d.caption)}</textarea>
-    <p class="section-title" style="margin-top:12px">Chú thích & loại ảnh <span class="muted" style="font-weight:400">— bấm ✕ để bỏ ảnh không muốn đăng</span></p>
-    <div class="imgs">${imgs.map((u,i)=>`<div class="imgItem" id="im_${d.id}_${i}"><img src="${u}" loading="lazy" alt="Ảnh ${i+1}"><button type="button" class="imgrm" onclick="toggleRm('${d.id}',${i})" title="Bỏ ảnh này khỏi bài">${ic('x',15)}</button><input id="ic_${d.id}_${i}" aria-label="Chú thích ảnh ${i+1}" placeholder="Chú thích ảnh ${i+1}" value="${esc(d.imageCaptions&&d.imageCaptions[i]||'')}"></div>`).join('')}</div>
+    <p class="section-title" style="margin-top:12px">Ảnh <span class="muted" style="font-weight:400">— dùng ↑↓ để sắp xếp (trên xuống = đăng lần lượt), ✕ để bỏ, hoặc thêm ảnh mới</span></p>
+    <div class="imgs" id="editimgs_${d.id}">${imgs.map((u,i)=>editImgItem(d.id,u,'orig',i,(d.imageCaptions&&d.imageCaptions[i])||'')).join('')}</div>
+    <label class="btn-ghost" style="margin-top:10px;cursor:pointer;display:inline-flex;align-items:center;gap:6px"><input type="file" accept="image/*" multiple hidden onchange="addEditImgs('${d.id}',this)">${ic('image',15)} Thêm ảnh</label>
     <div class="row" style="margin-top:10px"><button class="btn-primary" onclick="saveD('${d.id}',${imgs.length})">Lưu sửa</button><button class="btn-ghost" onclick="aiRewrite('${d.id}')" title="AI viết lại nội dung cho hấp dẫn hơn">${ic('sparkles',15)} AI viết lại</button><button class="btn-ghost" onclick="toggleEdit('${d.id}')">Đóng</button><span class="muted" id="airw_${d.id}" role="status" aria-live="polite"></span></div>
    </div>`:''}
   </div>`;
@@ -787,6 +789,26 @@ function liveCard(t,now){const head=`<div class="live-head"><b>${esc(t.label)}</
 }
 function capsOf(id,n){const a=[];for(let i=0;i<n;i++){const e=$('#ic_'+id+'_'+i);a.push(e?e.value:'')}return a}
 // Bỏ ảnh lẻ trước khi đăng
+window._newImgData=window._newImgData||{};let _nid=0;
+function editImgItem(id,url,kind,ref,caption){return `<div class="imgItem edit-img" ${kind==='orig'?`data-orig="${ref}"`:`data-newid="${esc(ref)}"`}>
+ <img src="${url}" loading="lazy" alt="">
+ <div style="position:absolute;top:5px;left:5px;display:flex;gap:4px">
+  <button type="button" class="imgrm" style="position:static;width:26px;height:26px" title="Lên trước" onclick="moveEditImg(this,-1)">↑</button>
+  <button type="button" class="imgrm" style="position:static;width:26px;height:26px" title="Xuống sau" onclick="moveEditImg(this,1)">↓</button></div>
+ <button type="button" class="imgrm" title="Bỏ ảnh" onclick="this.closest('.edit-img').remove()">${ic('x',15)}</button>
+ <input class="edit-img-cap" aria-label="Chú thích ảnh" placeholder="Chú thích ảnh" value="${esc(caption)}"></div>`}
+function moveEditImg(btn,dir){const it=btn.closest('.edit-img');if(!it)return;const box=it.parentElement;
+ if(dir<0&&it.previousElementSibling)box.insertBefore(it,it.previousElementSibling);
+ else if(dir>0&&it.nextElementSibling)box.insertBefore(it.nextElementSibling,it)}
+async function addEditImgs(id,input){const files=[...(input.files||[])];input.value='';const box=$('#editimgs_'+id);if(!box)return;
+ let added=0;for(const f of files){if(!f.type||!f.type.startsWith('image/'))continue;
+  const dataUrl=await new Promise(r=>{const rd=new FileReader();rd.onload=()=>r(rd.result);rd.readAsDataURL(f)});
+  const nid='n'+(++_nid);window._newImgData[nid]=dataUrl;box.insertAdjacentHTML('beforeend',editImgItem(id,dataUrl,'new',nid,''));added++}
+ if(added)toast(added+' ảnh đã thêm — bấm Lưu sửa để áp dụng')}
+function editItems(id){const box=$('#editimgs_'+id);if(!box)return null;
+ return [...box.querySelectorAll('.edit-img')].map(el=>{const caption=(el.querySelector('.edit-img-cap')||{}).value||'';
+  if(el.dataset.orig!=null)return {origIndex:Number(el.dataset.orig),caption};return {newImage:window._newImgData[el.dataset.newid]||'',caption}}).filter(x=>x.origIndex!=null||x.newImage)}
+function saveBody(id){const capEl=$('#cap_'+id);const items=editItems(id);const b={};if(capEl)b.caption=capEl.value;if(items)b.items=items;return b}
 const _rm={};
 function rmOf(id){return [...(_rm[id]||[])]}
 function toggleRm(id,i){_rm[id]=_rm[id]||new Set();const it=$('#im_'+id+'_'+i);
@@ -799,16 +821,16 @@ function setCardBusy(id,on){document.querySelectorAll('#cap_'+id+',[id^="ic_'+id
  document.querySelectorAll('[data-card="'+id+'"] button').forEach(b=>b.disabled=on)}
 function cardMsg(id,html,kind){const e=$('#msg_'+id);if(!e)return;e.className='cardmsg'+(kind?' '+kind:'');e.innerHTML=html}
 async function saveD(id,n){if(_inflight.has(id))return;_inflight.add(id);setCardBusy(id,true);cardMsg(id,'<span class="spin"></span>Đang lưu…','busy');
- try{await api('/api/pending/'+id+'/save','POST',{caption:$('#cap_'+id).value,imageCaptions:capsOf(id,n),removedIndexes:rmOf(id)});delete _rm[id];toast('Đã lưu chỉnh sửa');render()}
+ try{await api('/api/pending/'+id+'/save','POST',saveBody(id));delete _rm[id];toast('Đã lưu chỉnh sửa');render()}
  catch(e){cardMsg(id,ic('alert')+' Lưu lỗi: '+esc(e.message),'err')}finally{_inflight.delete(id);setCardBusy(id,false)}}
 async function doApprove(id,pub){if(_inflight.has(id))return false;const n=document.querySelectorAll('[id^="ic_'+id+'_"]').length;
  _inflight.add(id);setCardBusy(id,true);cardMsg(id,'<span class="spin"></span>'+(pub?'Đang đăng công khai…':'Đang tạo bản nháp…')+' (giữ ảnh lên Facebook, chờ chút)','busy');
- try{const capEl=$('#cap_'+id);if(capEl)await api('/api/pending/'+id+'/save','POST',{caption:capEl.value,imageCaptions:capsOf(id,n),removedIndexes:rmOf(id)});delete _rm[id];
+ try{await api('/api/pending/'+id+'/save','POST',saveBody(id));delete _rm[id];
   await api('/api/pending/'+id+'/approve','POST',{published:pub});return true}
  catch(e){cardMsg(id,ic('alert')+' Đăng lỗi: '+esc(e.message)+' — sửa lại rồi thử lại.','err');setCardBusy(id,false);return false}finally{_inflight.delete(id)}}
 async function doApproveGbp(id){if(_inflight.has(id))return false;const n=document.querySelectorAll('[id^="ic_'+id+'_"]').length;
  _inflight.add(id);setCardBusy(id,true);cardMsg(id,'<span class="spin"></span>Đang đăng Google Business bằng Playwright…','busy');
- try{const capEl=$('#cap_'+id);if(capEl)await api('/api/pending/'+id+'/save','POST',{caption:capEl.value,imageCaptions:capsOf(id,n),removedIndexes:rmOf(id)});delete _rm[id];
+ try{await api('/api/pending/'+id+'/save','POST',saveBody(id));delete _rm[id];
   await api('/api/pending/'+id+'/approve/gbp','POST');return true}
  catch(e){cardMsg(id,ic('alert')+' Google Business lỗi: '+esc(e.message)+' — kiểm tra session/location ID rồi thử lại.','err');setCardBusy(id,false);return false}finally{_inflight.delete(id)}}
 async function approve(id,pub){if(_inflight.has(id))return;
