@@ -180,6 +180,7 @@ input::placeholder,textarea::placeholder{color:var(--muted);opacity:1}
 .route-badges .pill,.route-badges .chip{font-size:var(--fs-xs)}
 .route-body{padding-top:14px;margin-top:12px;border-top:1px solid var(--border)}
 .route-map-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:10px;align-items:start}
+.route-map-grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}
 .route-map-grid .fieldset{min-width:0}
 .route-map-grid input,.route-map-grid select{min-width:0}
 .swrow{display:flex;flex-wrap:wrap;gap:4px 28px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)}
@@ -320,7 +321,7 @@ body.modal-lock{overflow:hidden}
   .card{padding:14px;border-radius:var(--r-sm)}
   /* Mỗi trường chiếm trọn một dòng cho dễ chạm */
   .fieldset{min-width:100%}
-  .route-map-grid{grid-template-columns:1fr}
+  .route-map-grid,.route-map-grid.two{grid-template-columns:1fr}
   .card-head{flex-wrap:wrap}
   .row{gap:8px}
   /* Bài nháp & thẻ chiếm trọn bề ngang điện thoại */
@@ -611,7 +612,7 @@ async function renderDrafts(){const all=await api('/api/posts');const el=$('#dra
  const done=inScope.filter(d=>d.queueStatus!=='pending');
  if(_postFilter==='needs'&&!needs.length&&done.length)_postFilter='all';
  const ds=_postFilter==='needs'?needs:(_postFilter==='done'?done:inScope);
- const toolbar=`${showFolderFilter?`<div class="post-pagefilter" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="muted" style="font-size:var(--fs-sm);font-weight:600">${ic('routes',15)} Mục phụ trách:</span><select onchange="setPageFilter(this.value)" style="width:auto;min-width:190px"><option value="">— Tất cả mục —</option>${pageList.map(([fid,name])=>`<option value="${esc(fid)}" ${_pageFilter===fid?'selected':''}>${esc(name)}</option>`).join('')}</select>${_pageFilter?`<span class="chip">đang xem: ${esc(_pageFilter)}</span>`:''}</div>`:''}
+ const toolbar=`${showFolderFilter?`<div class="post-pagefilter" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="muted" style="font-size:var(--fs-sm);font-weight:600">${ic('routes',15)} Mục phụ trách:</span><select aria-label="Lọc bài theo mục phụ trách" onchange="setPageFilter(this.value)" style="width:auto;min-width:190px"><option value="">— Tất cả mục —</option>${pageList.map(([fid,name])=>`<option value="${esc(fid)}" ${_pageFilter===fid?'selected':''}>${esc(name)}</option>`).join('')}</select>${_pageFilter?`<span class="chip">đang xem: ${esc(_pageFilter)}</span>`:''}</div>`:''}
  <div class="post-toolbar">
   <div class="post-tabs" role="tablist" aria-label="Lọc bài viết">
    <button class="${_postFilter==='needs'?'active':''}" onclick="setPostFilter('needs')">Cần xử lý ${needs.length?`(${needs.length})`:''}</button>
@@ -999,7 +1000,7 @@ function paintRoutes(){const data=window._routes||{routes:[]};const list=Array.i
     <span class="route-badges"><span class="pill ${r.enabled!==false?'on':'off'}" id="bp_${i}">${r.enabled!==false?'Bật':'Tắt'}</span><span class="chip${r.facebookAutoPublish?' warn':''}" id="fp_${i}">${r.facebookAutoPublish?'FB tự đăng':'FB chờ duyệt'}</span>${gbpIdsR(r).length?`<span class="chip${r.gbpAutoPublish?' warn':''}" id="gp_${i}">${r.gbpAutoPublish?'GBP tự đăng':'GBP chờ duyệt'} (${gbpIdsR(r).length})</span>`:''}<span class="chev${(r.threadId&&r.fanpageId)?'':' open'}" id="arrow_route_${i}">${ic('chevron',16)}</span></span>
    </div>
    <div id="fld_route_${i}" class="route-body${(r.threadId&&r.fanpageId)?' hide':''}">
-    <div class="route-map-grid">
+    <div class="route-map-grid two">
      <div class="fieldset"><label for="r_label_${i}">Tên gợi nhớ</label><input id="r_label_${i}" value="${esc(r.label||'')}" oninput="_routes.routes[${i}].label=this.value;const t=$('#rt_${i}');if(t)t.textContent=this.value||'Nhóm ${i+1}'" placeholder="VD: Lớp Mầm → Page Việt Anh"></div>
      <div class="fieldset"><label for="r_folder_${i}">Mục / Người phụ trách</label><input id="r_folder_${i}" value="${esc(r.folder||'')}" oninput="_routes.routes[${i}].folder=this.value" placeholder="VD: Chị Lan · Thương hiệu A" list="folderlist"><p class="field-help">Gom các Trang cùng người phụ trách vào 1 mục — màn <b>Bài viết</b> lọc theo mục này để không lộn thẻ của nhau.</p></div>
     </div>
