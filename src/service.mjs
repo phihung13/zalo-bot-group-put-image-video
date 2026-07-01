@@ -229,15 +229,18 @@ async function main() {
       if (!route.fanpageToken) { store.updatePending(d.id, { _publishing: false }); store.pushLog(`Hẹn giờ: "${d.routeLabel}" chưa có token Facebook — bỏ qua, sẽ thử lại.`); continue; }
       try {
         const published = d.scheduledPublished !== false;
+        const approvals = { ...(d.approvals || {}) };
         const r = await publishFacebookDraft(d, route, { published, comment: route.comment, log: (m) => console.log("  [hẹn giờ]", m) });
         const links = r.links || [];
+        approvals.facebook = { status: "posted", published, links, at: Date.now(), auto: true };
         const gbpIds = (route.gbpLocationIds && route.gbpLocationIds.length) ? route.gbpLocationIds : (route.gbpLocationId ? [route.gbpLocationId] : []);
         if (gbpIds.length && (d.savedImages || []).length) {
-          publishGbpDraft(d, route, { log: (m) => console.log("  [hẹn giờ gbp]", m) }).catch((e) => store.pushLog("Hẹn giờ GBP lỗi: " + e.message));
+          try { await publishGbpDraft(d, route, { log: (m) => console.log("  [hẹn giờ gbp]", m) }); approvals.gbp = { status: "posted", at: Date.now(), auto: true, count: gbpIds.length }; }
+          catch (e) { store.pushLog("Hẹn giờ GBP lỗi: " + e.message); }
         }
         store.removePending(d.id);
-        store.addPosted({ ...d, scheduledAt: null, _publishing: undefined, postedAt: Date.now(), published, links });
-        store.pushLog(`✅ ĐĂNG THEO LỊCH: ${d.routeLabel} → ${links.join(" ")}`);
+        store.addPosted({ ...d, approvals, scheduledAt: null, _publishing: undefined, postedAt: Date.now(), published, links, partial: false });
+        store.pushLog(`✅ ĐĂNG THEO LỊCH ${published ? "công khai" : "nháp"}: ${d.routeLabel} → ${links.join(" ")}`);
       } catch (e) {
         store.updatePending(d.id, { _publishing: false });
         store.pushLog(`Đăng theo lịch lỗi (${d.routeLabel}): ${e?.message || e} — giữ lại, sẽ thử lại.`);
