@@ -556,7 +556,8 @@ async function status(){try{const s=await api('/api/status');window._st=s;
  window._lastPending=s.pendingCount;
  }catch(e){}}
 
-async function render(){const fn={drafts:renderDrafts,live:renderLive,posted:renderPosted,routes:renderRoutes,token:renderToken,gbp:renderGbp,settings:renderSettings,logs:renderLogs}[cur];
+async function render(){closePostDetail(); // dọn lớp nền tối/khóa cuộn của popup Chi tiết trước khi vẽ lại (tránh kẹt màn hình tối)
+ const fn={drafts:renderDrafts,live:renderLive,posted:renderPosted,routes:renderRoutes,token:renderToken,gbp:renderGbp,settings:renderSettings,logs:renderLogs}[cur];
  try{await fn()}
  catch(e){if(e.message==='Phiên hết hạn')return;$('#'+cur).innerHTML=`<div class="card"><div class="errstate"><b>Không tải được dữ liệu</b><div>${esc(e.message)}</div><div class="row" style="justify-content:center;margin-top:14px"><button class="btn-ghost" onclick="render()">Thử lại</button></div></div></div>`}}
 
@@ -681,6 +682,7 @@ async function renderDrafts(){const all=await api('/api/posts');const el=$('#dra
    <div class="compact-actions"><span class="muted">${doneCount}/${totalCount} kênh</span><button class="btn-ghost" onclick="openPostDetail('${d.id}')">${ic('ext',14)} Chi tiết</button></div>
    ${inPending?`<div class="fbpost-util">
     <button class="btn-quiet" onclick="toggleEdit('${d.id}')" aria-expanded="false">${ic('pencil',15)} Sửa</button>
+    <button class="btn-quiet" onclick="aiRewrite('${d.id}')" title="AI viết lại nội dung cho hấp dẫn hơn">${ic('sparkles',15)} AI viết lại</button>
     <button class="btn-quiet" onclick="reloadFooter('${d.id}')" title="Áp chân bài / liên hệ mới nhất từ Nhóm → Trang">${ic('refresh',15)} Tải lại chân bài</button>
     <button class="btn-quiet danger" onclick="reject('${d.id}')">${ic('trash',15)} Từ chối</button>
    </div>`:`<div class="fbpost-util">
@@ -707,9 +709,10 @@ async function schedulePost(id){const inp=$('#sched_'+id);if(!inp||!inp.value)re
 async function unschedule(id){try{await api('/api/pending/'+id+'/unschedule','POST');toast('Đã hủy lịch');render()}catch(e){toast('Lỗi: '+e.message)}}
 async function redraft(id){if(!await confirmModal('Đăng nháp lại?','Tạo một bản nháp MỚI từ bài này (chân bài mới nhất) để bạn duyệt & đăng lại. Bài đã đăng cũ vẫn giữ nguyên.','Tạo nháp','btn-primary'))return;
  try{await api('/api/posted/'+id+'/redraft','POST');toast('Đã tạo bản nháp mới — vào Cần xử lý để duyệt');_postFilter='needs';localStorage.setItem('postFilter','needs');render()}catch(e){toast('Lỗi: '+e.message)}}
-async function aiRewrite(id){const ta=$('#cap_'+id);const m=$('#airw_'+id);if(!ta)return;
- if(m)m.innerHTML='<span class="spin"></span> AI đang viết lại…';
- try{const r=await api('/api/pending/'+id+'/rewrite','POST',{caption:ta.value});ta.value=r.caption;if(m)m.textContent='✓ Đã viết lại — xem lại rồi bấm Lưu sửa';}
+async function aiRewrite(id){const e=$('#edit_'+id);if(e){e.classList.remove('hide');e.scrollIntoView({behavior:'smooth',block:'nearest'})}
+ const ta=$('#cap_'+id);const m=$('#airw_'+id);if(!ta)return;
+ if(m)m.innerHTML='<span class="spin"></span> AI đang viết lại…';else toast('AI đang viết lại…');
+ try{const r=await api('/api/pending/'+id+'/rewrite','POST',{caption:ta.value});ta.value=r.caption;if(m)m.textContent='✓ Đã viết lại — xem lại rồi bấm Lưu sửa';toast('AI đã viết lại — xem trong khu Sửa, ưng thì Lưu sửa');}
  catch(e){if(m)m.textContent='';toast('Lỗi: '+e.message)}}
 function setPostFilter(f){_postFilter=f;localStorage.setItem('postFilter',f);_sel.clear();renderDrafts()}
 function toggleCaption(id){const text=$('#capview_'+id),btn=$('#capmore_'+id);if(!text||!btn)return;
@@ -726,8 +729,9 @@ function openPostDetail(id){
  card.classList.add('post-expanded');document.body.classList.add('modal-lock');card.scrollTop=0;
 }
 function closePostDetail(){
- const open=document.querySelector('.fbpost.post-expanded');if(open){open.classList.remove('post-expanded');const btn=open.querySelector('.post-modal-close');if(btn)btn.remove()}
- const back=$('#postDetailBackdrop');if(back)back.remove();document.body.classList.remove('modal-lock');
+ document.querySelectorAll('.fbpost.post-expanded').forEach(open=>{open.classList.remove('post-expanded');const btn=open.querySelector('.post-modal-close');if(btn)btn.remove()});
+ document.querySelectorAll('.post-detail-backdrop').forEach(b=>b.remove());
+ document.body.classList.remove('modal-lock');
 }
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closePostDetail()});
 
