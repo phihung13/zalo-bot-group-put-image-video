@@ -590,19 +590,23 @@ function statusPill(status,published){
  return `<span class="chip">Chờ duyệt</span>`;
 }
 let _postFilter=localStorage.getItem('postFilter')||'needs';
-let _pageFilter=localStorage.getItem('pageFilter')||'';
+let _pageFilter=localStorage.getItem('folderFilter')||localStorage.getItem('pageFilter')||'';
 async function renderDrafts(){const all=await api('/api/posts');const el=$('#drafts');const banner=await setupBanner();
- if(window._fbpages===undefined){ensureFbPages().then(()=>{if(cur==='drafts')renderDrafts()})} // nạp tên Trang cho folder
- // Folder theo Trang: gom Trang có trong bài
- const pageMap={};all.forEach(d=>{if(d.fanpageId){const p=(window._fbpages||[]).find(x=>String(x.fanpageId)===String(d.fanpageId));pageMap[String(d.fanpageId)]=(p&&p.name)?p.name:(d.routeLabel||('Trang '+d.fanpageId))}});
- const pageList=Object.entries(pageMap);
- if(_pageFilter&&!pageMap[_pageFilter])_pageFilter='';
- const inScope=_pageFilter?all.filter(d=>String(d.fanpageId)===String(_pageFilter)):all;
+ if(window._fbpages===undefined){ensureFbPages().then(()=>{if(cur==='drafts')renderDrafts()})} // nạp tên Trang cho fallback folder
+ // MỤC/FOLDER phụ trách: ưu tiên "Mục" cấu hình ở Nhóm→Trang (gom nhiều Trang cho 1 người); nếu trống -> dùng tên Trang.
+ const routes=(window._st&&window._st.routes)||[];
+ const folderByThread={};routes.forEach(r=>{if(r&&r.threadId)folderByThread[String(r.threadId)]=(r.folder||'').trim()});
+ const pageNameOf=(d)=>{const p=(window._fbpages||[]).find(x=>String(x.fanpageId)===String(d.fanpageId));return (p&&p.name)?p.name:(d.routeLabel||(d.fanpageId?('Trang '+d.fanpageId):'Khác'))};
+ const folderOf=(d)=>folderByThread[String(d.threadId)]||pageNameOf(d);
+ const folderMap={};all.forEach(d=>{const f=folderOf(d);if(f)folderMap[f]=f});
+ const pageList=Object.keys(folderMap).sort((a,b)=>a.localeCompare(b,'vi')).map(f=>[f,f]);
+ if(_pageFilter&&!folderMap[_pageFilter])_pageFilter='';
+ const inScope=_pageFilter?all.filter(d=>folderOf(d)===_pageFilter):all;
  const needs=inScope.filter(d=>d.queueStatus==='pending');
  const done=inScope.filter(d=>d.queueStatus!=='pending');
  if(_postFilter==='needs'&&!needs.length&&done.length)_postFilter='all';
  const ds=_postFilter==='needs'?needs:(_postFilter==='done'?done:inScope);
- const toolbar=`${pageList.length>1?`<div class="post-pagefilter" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="muted" style="font-size:var(--fs-sm);font-weight:600">${ic('routes',15)} Trang phụ trách:</span><select onchange="setPageFilter(this.value)" style="width:auto;min-width:190px"><option value="">— Tất cả Trang —</option>${pageList.map(([fid,name])=>`<option value="${esc(fid)}" ${_pageFilter===fid?'selected':''}>${esc(name)}</option>`).join('')}</select>${_pageFilter?`<span class="chip">đang xem 1 Trang</span>`:''}</div>`:''}
+ const toolbar=`${pageList.length>1?`<div class="post-pagefilter" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="muted" style="font-size:var(--fs-sm);font-weight:600">${ic('routes',15)} Mục phụ trách:</span><select onchange="setPageFilter(this.value)" style="width:auto;min-width:190px"><option value="">— Tất cả mục —</option>${pageList.map(([fid,name])=>`<option value="${esc(fid)}" ${_pageFilter===fid?'selected':''}>${esc(name)}</option>`).join('')}</select>${_pageFilter?`<span class="chip">đang xem: ${esc(_pageFilter)}</span>`:''}</div>`:''}
  <div class="post-toolbar">
   <div class="post-tabs" role="tablist" aria-label="Lọc bài viết">
    <button class="${_postFilter==='needs'?'active':''}" onclick="setPostFilter('needs')">Cần xử lý ${needs.length?`(${needs.length})`:''}</button>
@@ -613,7 +617,6 @@ async function renderDrafts(){const all=await api('/api/posts');const el=$('#dra
  </div>`;
  if(!all.length){_sel.clear();el.innerHTML=`<div class="workbench">${banner}${toolbar}<div class="card"><div class="empty">${svg(ICON.drafts).replace('18','40')}<div>Chưa có bài viết nào.<br>${banner?'Hoàn tất 3 bước ở trên để bắt đầu.':'Khi có người gửi ảnh vào nhóm Zalo, bài sẽ tự hiện ở đây.'}</div></div></div></div>`;return}
  if(!ds.length){_sel.clear();el.innerHTML=`<div class="workbench">${banner}${toolbar}<div class="card"><div class="empty">${svg(ICON.drafts).replace('18','40')}<div>Không có bài nào trong bộ lọc này.</div></div></div></div>`;return}
- const routes=(window._st&&window._st.routes)||[];
  const ids=new Set(ds.filter(d=>d.queueStatus==='pending'&&(((d.approvals||{}).facebook||{}).status||'pending')==='pending').map(d=>d.id));_sel=new Set([..._sel].filter(id=>ids.has(id)));
  const selbar=`<div id="selbar" class="selbar${_sel.size?' show':''}"><label class="selall"><input type="checkbox" onchange="selAll(this.checked)"> Chọn tất cả</label><span class="muted"><b id="selcount">${_sel.size}</b> bài đã chọn</span><div class="selacts"><button class="btn-success" onclick="bulkApprove(true)">Đăng công khai</button><button class="btn-ghost" onclick="bulkApprove(false)">Lưu nháp</button><button class="btn-danger" onclick="bulkReject()">Từ chối</button></div></div>`;
  el.innerHTML=`<div class="workbench">${banner}${toolbar}${selbar}<div class="posts-grid">`+ds.map(d=>{
@@ -727,7 +730,7 @@ async function aiRewrite(id){const e=$('#edit_'+id);if(e){e.classList.remove('hi
  try{const r=await api('/api/pending/'+id+'/rewrite','POST',{caption:ta.value});ta.value=r.caption;if(m)m.textContent='✓ Đã viết lại — xem lại rồi bấm Lưu sửa';toast('AI đã viết lại — xem trong khu Sửa, ưng thì Lưu sửa');}
  catch(e){if(m)m.textContent='';toast('Lỗi: '+e.message)}}
 function setPostFilter(f){_postFilter=f;localStorage.setItem('postFilter',f);_sel.clear();renderDrafts()}
-function setPageFilter(v){_pageFilter=v;localStorage.setItem('pageFilter',v);_sel.clear();renderDrafts()}
+function setPageFilter(v){_pageFilter=v;localStorage.setItem('folderFilter',v);_sel.clear();renderDrafts()}
 function toggleCaption(id){const text=$('#capview_'+id),btn=$('#capmore_'+id);if(!text||!btn)return;
  const expanded=!text.classList.toggle('clamped');
  btn.textContent=expanded?'thu gọn':'xem thêm';
@@ -974,7 +977,8 @@ function paintRoutes(){const data=window._routes||{routes:[]};const list=Array.i
  const defs=data.defaults||{};list.forEach(r=>{if(r.debounceMs==null)r.debounceMs=defs.debounceMs??600000;if(r.maxWaitMs==null)r.maxWaitMs=defs.maxWaitMs??1800000;});
  const loading=(window._zgroups===undefined||window._fbpages===undefined);
  const el=$('#routes');
- const head=`<div class="card"><div class="card-head"><b>Nhóm Zalo → Kênh đăng</b><button class="btn-ghost" onclick="reloadGroups()">${ic('refresh')} Tải lại danh sách</button></div>
+ const _folders=[...new Set(list.map(r=>(r.folder||'').trim()).filter(Boolean))];
+ const head=`<datalist id="folderlist">${_folders.map(f=>`<option value="${esc(f)}">`).join('')}</datalist><div class="card"><div class="card-head"><b>Nhóm Zalo → Kênh đăng</b><button class="btn-ghost" onclick="reloadGroups()">${ic('refresh')} Tải lại danh sách</button></div>
    <p class="muted" style="margin:0">Mỗi dòng chọn một <b>nhóm Zalo</b> nguồn, rồi chọn nơi đăng tương ứng: <b>Trang Facebook</b> và/hoặc <b>Google Business</b>. Sửa xong nhớ bấm <b>Lưu cấu hình</b>.</p>
    ${loading?'<p class="field-help" style="margin-top:8px"><span class="spin"></span> Đang tải danh sách nhóm & Trang… (có thể nhập tay trong lúc chờ)</p>':''}</div>`;
  if(!list.length){el.innerHTML=head+`<div class="card"><div class="guide"><h3>Chưa có nhóm nào được nối</h3>
@@ -990,7 +994,10 @@ function paintRoutes(){const data=window._routes||{routes:[]};const list=Array.i
     <span class="route-badges"><span class="pill ${r.enabled!==false?'on':'off'}" id="bp_${i}">${r.enabled!==false?'Bật':'Tắt'}</span><span class="chip${r.facebookAutoPublish?' warn':''}" id="fp_${i}">${r.facebookAutoPublish?'FB tự đăng':'FB chờ duyệt'}</span>${gbpIdsR(r).length?`<span class="chip${r.gbpAutoPublish?' warn':''}" id="gp_${i}">${r.gbpAutoPublish?'GBP tự đăng':'GBP chờ duyệt'} (${gbpIdsR(r).length})</span>`:''}<span class="chev${(r.threadId&&r.fanpageId)?'':' open'}" id="arrow_route_${i}">${ic('chevron',16)}</span></span>
    </div>
    <div id="fld_route_${i}" class="route-body${(r.threadId&&r.fanpageId)?' hide':''}">
-    <div class="fieldset"><label for="r_label_${i}">Tên gợi nhớ</label><input id="r_label_${i}" value="${esc(r.label||'')}" oninput="_routes.routes[${i}].label=this.value;const t=$('#rt_${i}');if(t)t.textContent=this.value||'Nhóm ${i+1}'" placeholder="VD: Lớp Mầm → Page Việt Anh"></div>
+    <div class="route-map-grid">
+     <div class="fieldset"><label for="r_label_${i}">Tên gợi nhớ</label><input id="r_label_${i}" value="${esc(r.label||'')}" oninput="_routes.routes[${i}].label=this.value;const t=$('#rt_${i}');if(t)t.textContent=this.value||'Nhóm ${i+1}'" placeholder="VD: Lớp Mầm → Page Việt Anh"></div>
+     <div class="fieldset"><label for="r_folder_${i}">Mục / Người phụ trách</label><input id="r_folder_${i}" value="${esc(r.folder||'')}" oninput="_routes.routes[${i}].folder=this.value" placeholder="VD: Chị Lan · Thương hiệu A" list="folderlist"><p class="field-help">Gom các Trang cùng người phụ trách vào 1 mục — màn <b>Bài viết</b> lọc theo mục này để không lộn thẻ của nhau.</p></div>
+    </div>
     <div class="route-map-grid">
      <div class="fieldset"><label for="r_thread_${i}">Nhóm Zalo (nguồn ảnh)</label>${groupField(r,i,groups)}<p class="field-help">Nhóm thành viên gửi ảnh vào.</p></div>
      <div class="fieldset"><label for="r_page_${i}">Trang Facebook (đăng tới)</label>${pageField(r,i,window._fbpages)}<p class="field-help">Chưa thấy Trang? Vào tab <b>Token</b> dán user token để hệ thống tự tìm.</p></div>
@@ -1001,7 +1008,7 @@ function paintRoutes(){const data=window._routes||{routes:[]};const list=Array.i
      <label class="sw rsw rsw-warn"><input type="checkbox" ${r.facebookAutoPublish?'checked':''} onchange="_routes.routes[${i}].facebookAutoPublish=this.checked;_routes.routes[${i}].published=this.checked;setRouteBadge(${i})"> Facebook tự đăng công khai</label>
      <label class="sw rsw rsw-warn"><input type="checkbox" ${r.gbpAutoPublish?'checked':''} onchange="_routes.routes[${i}].gbpAutoPublish=this.checked;setRouteBadge(${i})" ${gbpIdsR(r).length?'':'disabled'}> Google Business tự đăng</label>
     </div>
-   <div class="collapse-head" style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px" onclick="toggleField('adv_${i}')"><label>Cài đặt nâng cao</label><span class="collapse-state">thời gian · bình luận · chân bài <span class="chev" id="arrow_adv_${i}">${ic('chevron',14)}</span></span></div>
+   <div class="collapse-head" style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px" onclick="toggleField('adv_${i}')"><label>Cài đặt nâng cao</label><span class="collapse-state">thời gian · bình luận · chân bài · hướng dẫn viết · hashtag <span class="chev" id="arrow_adv_${i}">${ic('chevron',14)}</span></span></div>
    <div id="fld_adv_${i}" class="hide">
     <div class="row" style="margin-top:8px">
      <div class="fieldset"><label for="r_deb_${i}">Chốt sau im lặng (phút)</label><input id="r_deb_${i}" type="number" min="0.1" step="0.5" value="${(r.debounceMs/60000)}" oninput="_routes.routes[${i}].debounceMs=Math.max(5000,Math.round(this.value*60000))"></div>
@@ -1014,9 +1021,10 @@ function paintRoutes(){const data=window._routes||{routes:[]};const list=Array.i
     <div class="fieldset" style="margin-top:10px"><label for="r_foot_${i}">Chân bài cố định (hotline + địa chỉ) ${r.captionFooter?('· <span class="pill on">'+r.captionFooter.length+' ký tự</span>'):''}</label>
      <textarea id="r_foot_${i}" rows="5" oninput="_routes.routes[${i}].captionFooter=this.value" placeholder="Dán nguyên khối liên hệ (hotline, địa chỉ, hashtag, Google Maps...).">${esc(r.captionFooter||'')}</textarea>
      <p class="field-help">Hệ thống tự chèn nguyên văn xuống cuối mỗi bài.</p></div>
-    <div class="fieldset" style="margin-top:10px"><label for="r_style_${i}">Bài mẫu giọng văn (tuỳ chọn) ${r.styleSample?('· <span class="pill on">'+r.styleSample.length+' ký tự</span>'):''}</label>
-     <textarea id="r_style_${i}" rows="5" oninput="_routes.routes[${i}].styleSample=this.value" placeholder="Dán 1 bài đã đăng hay của Trang này để AI viết theo đúng giọng. Để trống = giọng mặc định.">${esc(r.styleSample||'')}</textarea>
-     <p class="field-help">AI tham khảo để viết caption MỚI cùng phong cách Trang.</p></div>
+    <div class="fieldset" style="margin-top:10px"><label for="r_style_${i}">Hướng dẫn viết cho Trang (tuỳ chọn) ${(()=>{const g=r.writeGuide??r.styleSample??'';return g?('· <span class="pill on">'+g.length+' ký tự</span>'):''})()}</label>
+     <textarea id="r_style_${i}" rows="6" oninput="_routes.routes[${i}].writeGuide=this.value" placeholder="Viết CHỈ DẪN cho AI (không phải bài mẫu để chép), VD:&#10;- Phong cách: gần gũi, nhiều cảm xúc.&#10;- Xưng hô: gọi 'ba mẹ', xưng 'nhà trường'.&#10;- Chương trình đang chạy: Ưu đãi học phí tháng 7.&#10;- Lead magnet: mời để lại SĐT nhận lịch tham quan.&#10;Để trống = phong cách mặc định.">${esc(r.writeGuide??r.styleSample??'')}</textarea>
+     <p class="field-help">AI DỰA vào hướng dẫn này để tùy biến bài (giọng văn, xưng hô, campaign, lead magnet, chương trình) — không bắt chước máy móc.</p></div>
+    <label class="sw rsw" style="margin-top:10px"><input type="checkbox" ${r.autoHashtags!==false?'checked':''} onchange="_routes.routes[${i}].autoHashtags=this.checked"> AI tự thêm 5 hashtag ở cuối bài (dưới chân bài)</label>
    </div>
    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px"><button class="btn-quiet" style="color:var(--muted);font-size:var(--fs-sm)" onclick="deleteRoute(event,${i})">${ic('trash',14)} Xoá nhóm này</button></div>
    </div>
@@ -1024,7 +1032,7 @@ function paintRoutes(){const data=window._routes||{routes:[]};const list=Array.i
   `<div class="card"><div class="row"><button class="btn-primary" onclick="saveRoutes()">Lưu cấu hình</button><button class="btn-ghost" onclick="addRoute()">+ Thêm nhóm</button>${groups===null?'<span class="field-help">Chưa tải được danh sách nhóm (Zalo chưa kết nối) — tạm nhập mã nhóm tay.</span>':''}</div></div>`;
 }
 async function deleteRoute(e,i){e.stopPropagation();const r=window._routes&&window._routes.routes&&window._routes.routes[i];const name=r&&r.label?`"${r.label}"`:`Nhóm ${i+1}`;if(!await confirmModal(`Xoá ${name}?`,'Nhóm này sẽ bị xoá khỏi cấu hình. Các bài đã đăng không bị ảnh hưởng.','Xoá nhóm','btn-danger'))return;window._routes.routes.splice(i,1);paintRoutes();saveRoutes()}
-function addRoute(){if(!window._routes)window._routes={routes:[]};window._routes.routes.push({threadId:'',label:'',fanpageId:'',fanpageTokenEnv:'',published:false,facebookAutoPublish:false,gbpAutoPublish:false,enabled:true,comment:'',captionFooter:'',gbpLocationIds:[],gbpLocationId:'',debounceMs:60000,maxWaitMs:300000});paintRoutes()}
+function addRoute(){if(!window._routes)window._routes={routes:[]};window._routes.routes.push({threadId:'',label:'',folder:'',fanpageId:'',fanpageTokenEnv:'',published:false,facebookAutoPublish:false,gbpAutoPublish:false,enabled:true,comment:'',captionFooter:'',writeGuide:'',autoHashtags:true,gbpLocationIds:[],gbpLocationId:'',debounceMs:60000,maxWaitMs:300000});paintRoutes()}
 async function clearComment(i){if(!await confirmModal('Xoá bình luận tự động?','Nhóm này sẽ không tự bình luận dưới bài nữa.','Xoá','btn-danger'))return;window._routes.routes[i].comment='';const e=$('#r_cmt_'+i);if(e)e.value='';saveRoutes()}
 function toggleField(id){const f=$('#fld_'+id);if(!f)return;const collapsed=f.classList.toggle('hide');const a=$('#arrow_'+id);if(a)a.classList.toggle('open',!collapsed);
  const btn=document.querySelector(`[onclick="toggleField('${id}')"]`);

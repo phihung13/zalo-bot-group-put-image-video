@@ -12,20 +12,16 @@ import { exchangeLongLivedUser, listUserPages, debugToken, setEnvVar, derivePage
 import { loadPages, savePages, envNameFor } from "./pages.mjs";
 import { beginGBPLogin, cancelGBPLogin, finishGBPLogin, gbpLoginStatus, inspectGbpSession, loadGbpBusinesses, saveGbpBusinesses, importGbpSession } from "./gbp.mjs";
 import { loadConfig, routeForThread } from "./config.mjs";
-import { rewriteCaption } from "./caption.mjs";
+import { rewriteCaption, reapplyTail } from "./caption.mjs";
 import { formatImage } from "./format.mjs";
 import { dataPath, CRED_FILE, QR_FILE, saveToken, removeToken } from "./paths.mjs";
 
 const ROUTES_FILE = process.env.ROUTES_FILE || "config/routes.json";
 const PAGE_FILE = path.resolve("public/index.html");
 
-/** Thay khối chân bài cũ (ở cuối caption) bằng chân bài mới. */
-function reapplyFooter(caption, oldFooter, newFooter) {
-  let body = String(caption || "");
-  const oldF = String(oldFooter || "").trim();
-  if (oldF && body.trimEnd().endsWith(oldF)) body = body.trimEnd().slice(0, -oldF.length).trimEnd();
-  const nf = String(newFooter || "").trim();
-  return nf ? (body.trimEnd() + "\n\n" + nf) : body;
+/** Thay chân bài cũ ở đuôi caption bằng chân bài mới, GIỮ NGUYÊN hashtag (dưới cùng). */
+function reapplyFooter(caption, oldFooter, newFooter, hashtags = "") {
+  return reapplyTail(caption, oldFooter, hashtags, newFooter, hashtags);
 }
 
 function channelsFor(d, route = {}) {
@@ -127,7 +123,7 @@ export function startWeb(ctx = {}) {
         threadId: r.threadId, label: r.label, fanpageId: r.fanpageId, fanpageTokenEnv: r.fanpageTokenEnv,
         hasToken: !!r.fanpageToken, published: r.published, facebookAutoPublish: !!r.facebookAutoPublish,
         gbpAutoPublish: !!r.gbpAutoPublish, enabled: r.enabled, comment: r.comment,
-        gbpLocationId: r.gbpLocationId,
+        gbpLocationId: r.gbpLocationId, folder: r.folder || "",
       })),
     });
   });
@@ -255,7 +251,7 @@ export function startWeb(ctx = {}) {
     if (!cur.trim()) return res.status(400).json({ error: "Bài chưa có nội dung để viết lại" });
     const route = routeForThread(loadConfig(), d.threadId) || {};
     try {
-      const out = await rewriteCaption(cur, { styleGuide: route.styleSample || "", log: store.pushLog });
+      const out = await rewriteCaption(cur, { guide: route.writeGuide || route.styleSample || "", log: store.pushLog });
       if (!out) return res.status(400).json({ error: "AI chưa viết lại được — kiểm tra API key Claude ở tab Cài đặt." });
       store.pushLog(`AI viết lại caption: ${d.routeLabel || d.id}`);
       res.json({ ok: true, caption: out });
@@ -268,7 +264,7 @@ export function startWeb(ctx = {}) {
     if (!d) return res.status(404).json({ error: "không thấy draft" });
     const route = routeForThread(loadConfig(), d.threadId) || {};
     const nf = String(route.captionFooter || "").trim();
-    const next = store.updatePending(d.id, { caption: reapplyFooter(d.caption, d.captionFooter, nf), captionFooter: nf });
+    const next = store.updatePending(d.id, { caption: reapplyFooter(d.caption, d.captionFooter, nf, d.hashtags || ""), captionFooter: nf });
     store.pushLog(`Tải lại chân bài: ${d.routeLabel || d.id}`);
     res.json(next);
   });
@@ -511,7 +507,7 @@ export function startWeb(ctx = {}) {
     if (!item) return res.status(404).json({ error: "không thấy bài" });
     const route = routeForThread(loadConfig(), item.threadId) || {};
     const nf = String(route.captionFooter || "").trim();
-    const next = store.updatePosted(item.id, { caption: reapplyFooter(item.caption, item.captionFooter, nf), captionFooter: nf });
+    const next = store.updatePosted(item.id, { caption: reapplyFooter(item.caption, item.captionFooter, nf, item.hashtags || ""), captionFooter: nf });
     store.pushLog(`Tải lại chân bài (bài đã đăng): ${item.routeLabel || item.id}`);
     res.json(next || item);
   });
@@ -526,7 +522,7 @@ export function startWeb(ctx = {}) {
     const newId = `${item.id}_v${Date.now()}`;
     const draft = {
       ...item, id: newId,
-      caption: reapplyFooter(item.caption, item.captionFooter, nf), captionFooter: nf,
+      caption: reapplyFooter(item.caption, item.captionFooter, nf, item.hashtags || ""), captionFooter: nf,
       published: route.published, createdAt: Date.now(),
       links: undefined, postedAt: undefined, partial: undefined,
       approvals: { facebook: { status: "pending" }, ...(gbpIdsOf(item, route).length && item.savedImages?.length ? { gbp: { status: "pending" } } : {}) },
@@ -550,7 +546,7 @@ export function startWeb(ctx = {}) {
         const nf = String(r.captionFooter || "").trim();
         for (const d of store.listPending()) {
           if (String(d.threadId) === String(r.threadId) && (d.captionFooter || "") !== nf) {
-            store.updatePending(d.id, { caption: reapplyFooter(d.caption, d.captionFooter, nf), captionFooter: nf });
+            store.updatePending(d.id, { caption: reapplyFooter(d.caption, d.captionFooter, nf, d.hashtags || ""), captionFooter: nf });
             updated++;
           }
         }
