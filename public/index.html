@@ -672,11 +672,12 @@ async function renderDrafts(){const all=await api('/api/posts');const el=$('#dra
    </div>
    ${inPending&&fbStatus==='pending'?`<div class="schedule-row" style="margin:0 14px 12px;padding:10px 12px;border:1px dashed var(--border);border-radius:var(--r-xs);background:var(--surface-2)">
     ${d.scheduledAt?`<div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-      <span>${ic('clock',15)} Sẽ tự đăng lúc <b>${new Date(d.scheduledAt).toLocaleString('vi-VN')}</b></span>
+      <span>${ic('clock',15)} Sẽ tự <b>${d.scheduledPublished!==false?'ĐĂNG CÔNG KHAI':'LƯU NHÁP'}</b> lúc <b>${new Date(d.scheduledAt).toLocaleString('vi-VN')}</b></span>
       <button class="btn-quiet danger" onclick="unschedule('${d.id}')">Hủy lịch</button></div>`
     :`<div class="row" style="gap:8px;align-items:flex-end;flex-wrap:wrap">
-      <div class="fieldset" style="margin:0;flex:1;min-width:200px"><label for="sched_${d.id}">${ic('clock',14)} Hẹn giờ đăng (thay vì đăng ngay)</label><input type="datetime-local" id="sched_${d.id}"></div>
-      <button class="btn-ghost" onclick="schedulePost('${d.id}')">Hẹn giờ đăng</button></div>`}
+      <div class="fieldset" style="margin:0;flex:1;min-width:170px"><label for="sched_${d.id}">${ic('clock',14)} Hẹn giờ đăng (thay vì đăng ngay)</label><input type="datetime-local" id="sched_${d.id}"></div>
+      <div class="fieldset" style="margin:0"><label for="schedmode_${d.id}">Khi tới giờ</label><select id="schedmode_${d.id}"><option value="public">Đăng công khai</option><option value="draft">Lưu nháp Facebook</option></select></div>
+      <button class="btn-ghost" onclick="schedulePost('${d.id}')">Hẹn giờ</button></div>`}
    </div>`:''}
    ${linkRow}
    <div class="compact-actions"><span class="muted">${doneCount}/${totalCount} kênh</span><button class="btn-ghost" onclick="openPostDetail('${d.id}')">${ic('ext',14)} Chi tiết</button></div>
@@ -705,7 +706,8 @@ async function reloadFooter(id){try{await api('/api/pending/'+id+'/reload-footer
 async function reloadFooterPosted(id){try{await api('/api/posted/'+id+'/reload-footer','POST');toast('Đã cập nhật chân bài (bản lưu)');render()}catch(e){toast('Lỗi: '+e.message)}}
 async function schedulePost(id){const inp=$('#sched_'+id);if(!inp||!inp.value)return toast('Chọn ngày giờ trước');
  const at=new Date(inp.value).getTime();if(!at||at<Date.now())return toast('Thời gian phải ở tương lai');
- try{await api('/api/pending/'+id+'/schedule','POST',{at,published:true});toast('Đã hẹn giờ đăng');render()}catch(e){toast('Lỗi: '+e.message)}}
+ const mode=($('#schedmode_'+id)&&$('#schedmode_'+id).value)||'public';
+ try{await api('/api/pending/'+id+'/schedule','POST',{at,published:mode==='public'});toast(mode==='public'?'Đã hẹn ĐĂNG CÔNG KHAI':'Đã hẹn LƯU NHÁP');render()}catch(e){toast('Lỗi: '+e.message)}}
 async function unschedule(id){try{await api('/api/pending/'+id+'/unschedule','POST');toast('Đã hủy lịch');render()}catch(e){toast('Lỗi: '+e.message)}}
 async function redraft(id){if(!await confirmModal('Đăng nháp lại?','Tạo một bản nháp MỚI từ bài này (chân bài mới nhất) để bạn duyệt & đăng lại. Bài đã đăng cũ vẫn giữ nguyên.','Tạo nháp','btn-primary'))return;
  try{await api('/api/posted/'+id+'/redraft','POST');toast('Đã tạo bản nháp mới — vào Cần xử lý để duyệt');_postFilter='needs';localStorage.setItem('postFilter','needs');render()}catch(e){toast('Lỗi: '+e.message)}}
