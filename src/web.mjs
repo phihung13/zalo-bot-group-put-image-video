@@ -13,6 +13,7 @@ import { loadPages, savePages, envNameFor } from "./pages.mjs";
 import { beginGBPLogin, cancelGBPLogin, finishGBPLogin, gbpLoginStatus, inspectGbpSession, loadGbpBusinesses, saveGbpBusinesses, importGbpSession } from "./gbp.mjs";
 import { loadConfig, routeForThread } from "./config.mjs";
 import { rewriteCaption } from "./caption.mjs";
+import { formatImage } from "./format.mjs";
 import { dataPath, CRED_FILE, QR_FILE, saveToken, removeToken } from "./paths.mjs";
 
 const ROUTES_FILE = process.env.ROUTES_FILE || "config/routes.json";
@@ -79,7 +80,7 @@ function rememberProcessedChannel(d, route = {}, patch = {}) {
  */
 export function startWeb(ctx = {}) {
   const app = express();
-  app.use(express.json({ limit: "2mb" }));
+  app.use(express.json({ limit: "40mb" })); // 40mb: đủ cho vài ảnh base64 khi upload thêm trong lúc sửa bài
 
   const USER = process.env.DASHBOARD_USER || "admin";
   const PASS = process.env.DASHBOARD_PASS || "admin";
@@ -198,28 +199,52 @@ export function startWeb(ctx = {}) {
     res.json(posts.sort((a, b) => (b.sortAt || b.postedAt || b.createdAt || 0) - (a.sortAt || a.postedAt || a.createdAt || 0)).slice(0, 160));
   });
 
-  app.post("/api/pending/:id/save", requireAuth, (req, res) => {
-    const { caption, imageCaptions, removedIndexes } = req.body || {};
+  app.post("/api/pending/:id/save", requireAuth, async (req, res) => {
+    const { caption, imageCaptions, removedIndexes, items } = req.body || {};
     const cur = store.getPending(req.params.id);
     if (!cur) return res.status(404).json({ error: "không thấy draft" });
     const patch = {};
     if (caption != null) patch.caption = caption;
-    if (imageCaptions) patch.imageCaptions = imageCaptions;
-    // Bỏ một số ảnh lẻ trước khi đăng (admin loại ảnh xấu/nhạy cảm)
-    if (Array.isArray(removedIndexes) && removedIndexes.length && Array.isArray(cur.savedImages)) {
-      const drop = new Set(removedIndexes.map(Number));
-      const keep = (arr) => (Array.isArray(arr) ? arr.filter((_, i) => !drop.has(i)) : arr);
-      const keptImgs = keep(cur.savedImages);
-      if (keptImgs.length || (cur.savedVideos && cur.savedVideos.length)) {
-        patch.savedImages = keptImgs;
-        patch.imageUrls = keep(cur.imageUrls);
-        patch.imageCaptions = keep(patch.imageCaptions || cur.imageCaptions);
-        for (const i of drop) { const p = cur.savedImages[i]; if (p) try { fs.rmSync(p, { force: true }); } catch {} }
-        store.pushLog(`Bỏ ${drop.size} ảnh khỏi bài: ${cur.routeLabel || cur.id}`);
+    if (imageCaptions && !Array.isArray(items)) patch.imageCaptions = imageCaptions;
+    try {
+      // MÔ HÌNH MỚI: items = danh sách ảnh theo THỨ TỰ hiển thị (gộp sắp xếp + thêm ảnh + bỏ ảnh).
+      if (Array.isArray(items)) {
+        const newSaved = [], newUrls = [], newCaps = [];
+        for (const it of items) {
+          if (it && it.origIndex != null && cur.savedImages && cur.savedImages[it.origIndex]) {
+            newSaved.push(cur.savedImages[it.origIndex]);
+            newUrls.push(cur.imageUrls[it.origIndex]);
+            newCaps.push(String(it.caption || ""));
+          } else if (it && it.newImage) {
+            const buf = Buffer.from(String(it.newImage).replace(/^data:[^,]+,/, ""), "base64");
+            const outBuf = await formatImage(buf, { mode: "native" });
+            fs.mkdirSync(cur.dir, { recursive: true });
+            const fpath = path.join(cur.dir, `added_${Date.now()}_${newSaved.length}.jpg`);
+            fs.writeFileSync(fpath, outBuf);
+            newSaved.push(fpath);
+            newUrls.push("/output/" + path.relative(dataPath("output"), fpath).replace(/\\/g, "/"));
+            newCaps.push(String(it.caption || ""));
+          }
+        }
+        if (!newSaved.length && !(cur.savedVideos && cur.savedVideos.length)) return res.status(400).json({ error: "Bài phải còn ít nhất 1 ảnh hoặc video" });
+        for (const p of (cur.savedImages || [])) if (!newSaved.includes(p)) { try { fs.rmSync(p, { force: true }); } catch {} }
+        patch.savedImages = newSaved; patch.imageUrls = newUrls; patch.imageCaptions = newCaps;
+        store.pushLog(`Cập nhật ảnh bài ${cur.routeLabel || cur.id}: ${newSaved.length} ảnh (sắp xếp/thêm/bỏ)`);
+      } else if (Array.isArray(removedIndexes) && removedIndexes.length && Array.isArray(cur.savedImages)) {
+        const drop = new Set(removedIndexes.map(Number));
+        const keep = (arr) => (Array.isArray(arr) ? arr.filter((_, i) => !drop.has(i)) : arr);
+        const keptImgs = keep(cur.savedImages);
+        if (keptImgs.length || (cur.savedVideos && cur.savedVideos.length)) {
+          patch.savedImages = keptImgs;
+          patch.imageUrls = keep(cur.imageUrls);
+          patch.imageCaptions = keep(patch.imageCaptions || cur.imageCaptions);
+          for (const i of drop) { const p = cur.savedImages[i]; if (p) try { fs.rmSync(p, { force: true }); } catch {} }
+          store.pushLog(`Bỏ ${drop.size} ảnh khỏi bài: ${cur.routeLabel || cur.id}`);
+        }
       }
-    }
-    const d = store.updatePending(req.params.id, patch);
-    res.json(d);
+      const d = store.updatePending(req.params.id, patch);
+      res.json(d);
+    } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
   // AI viết lại caption cho hấp dẫn hơn (không tự lưu — trả về để xem trước rồi bấm Lưu sửa)
