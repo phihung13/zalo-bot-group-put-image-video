@@ -46,6 +46,7 @@ export function loadConfig(file = process.env.ROUTES_FILE || DEFAULT_FILE) {
       writeGuide: (r.writeGuide ?? r.styleSample ?? "").toString(),
       styleSample: r.styleSample || "", // (cũ) giữ để tương thích ngược
       autoHashtags: r.autoHashtags !== false, // mặc định BẬT: AI tự thêm 5 hashtag cuối bài
+      curateImages: r.curateImages !== false, // mặc định BẬT: lọc ảnh (bỏ trùng/mờ/tối + AI chọn ảnh đẹp trong cụm)
       gbpLocationIds: gbpIds,            // NHIỀU GBP business; rỗng = không đăng GBP
       gbpLocationId: gbpIds[0] || "",    // tương thích ngược (1 ID)
     });
