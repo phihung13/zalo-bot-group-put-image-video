@@ -53,6 +53,23 @@ const raw = (fn) => { const b = Buffer.alloc(N * N); for (let y = 0; y < N; y++)
   ok("processBatch: lọc + format + lưu file + caption fallback + reply");
 }
 
+// curate:false -> GIỮ NGUYÊN mọi ảnh (kể cả ảnh mờ), không bỏ ảnh nào
+{
+  const checker = await raw((x, y) => ((x + y) % 2 ? 255 : 0));
+  const stripes = await raw((x) => (x % 2 ? 255 : 0));
+  const blur = await raw(() => 128); // ảnh mờ -> nếu lọc thì bị bỏ
+  const res = await processBatch(
+    { threadId: "no-curate", startedAt: 2, items: [
+      { kind: "image", buffer: checker }, { kind: "image", buffer: stripes }, { kind: "image", buffer: blur },
+    ], texts: [] },
+    "command",
+    { outputDir: tmp, disableAI: true, curate: false, reply: async () => {}, log: () => {} },
+  );
+  assert.equal(res.savedImages.length, 3, "curate:false giữ cả 3 ảnh (kể cả ảnh mờ)");
+  assert.equal(res.droppedCount, 0, "curate:false không bỏ ảnh nào");
+  ok("curate:false -> giữ nguyên mọi ảnh, không lọc");
+}
+
 // reply lỗi KHÔNG làm sập pipeline
 {
   const img = await raw((x, y) => ((x + y) % 2 ? 255 : 0));

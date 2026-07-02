@@ -11,6 +11,7 @@ import { processBatch } from "./pipeline.mjs";
 import { assembleCaption } from "./caption.mjs";
 import { publishFacebookDraft, publishGbpDraft } from "./publish.mjs";
 import { startWeb } from "./web.mjs";
+import { pushToPostiz } from "./postiz.mjs";
 import * as store from "./store.mjs";
 import * as live from "./live.mjs";
 import { CRED_FILE, QR_FILE, dataPath, loadTokensIntoEnv } from "./paths.mjs";
@@ -69,6 +70,8 @@ async function main() {
           log: (m) => console.log("  [pipeline]", m), perItemCaption: true,
           guide: route.writeGuide || route.styleSample || "",
           autoHashtags: route.autoHashtags !== false,
+          curate: route.curateImages !== false, // TẮT ở nhóm này -> giữ nguyên mọi ảnh, không lọc
+
           onStage: (stage, extra) => live.processing(batch.threadId, stage, extra),
         });
         if (!res.savedImages.length && !res.savedVideos.length) { live.done(batch.threadId, null); return; }
@@ -127,6 +130,12 @@ async function main() {
         const channels = ["facebook", ...(gbpForThisPost ? ["gbp"] : [])];
         const needsReview = channels.some((ch) => approvals[ch]?.status !== "posted");
         const finalDraft = { ...draft, approvals, published, links };
+        // Cầu nối Postiz: đẩy bản nháp sang Việt Anh Media Hub (nếu bật ở /postiz). Chạy nền, không chặn.
+        if (process.env.POSTIZ_ENABLED === "true") {
+          pushToPostiz({ caption: draft.caption, imagePaths: draft.savedImages || [], videoPaths: draft.savedVideos || [], groupName: route.label })
+            .then((r) => { if (r?.ok) store.pushLog(`Đã đẩy bản nháp "${route.label}" sang Postiz (${r.media} media).`); else if (r && !r.skipped) store.pushLog(`Đẩy Postiz lỗi: ${r.error || r.status}`); })
+            .catch((e) => store.pushLog(`Đẩy Postiz lỗi: ${e.message}`));
+        }
         if (autoPosted) store.addPosted({ ...finalDraft, postedAt: Date.now(), partial: needsReview });
         if (needsReview) {
           store.addPending(finalDraft);

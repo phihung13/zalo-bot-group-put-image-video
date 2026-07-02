@@ -1015,6 +1015,7 @@ function paintRoutes(){const data=window._routes||{routes:[]};const list=Array.i
     </div>
     <div class="swrow">
      <label class="sw rsw"><input type="checkbox" ${r.enabled!==false?'checked':''} onchange="_routes.routes[${i}].enabled=this.checked;setRouteBadge(${i})"> Bật nhóm này</label>
+     <label class="sw rsw" title="Bật: AI bỏ ảnh trùng/mờ/tối và chọn ảnh đẹp trong cụm. Tắt: giữ NGUYÊN mọi ảnh gửi vào."><input type="checkbox" ${r.curateImages!==false?'checked':''} onchange="_routes.routes[${i}].curateImages=this.checked"> Lọc ảnh (bỏ trùng/mờ/tối)</label>
      <label class="sw rsw rsw-warn"><input type="checkbox" ${r.facebookAutoPublish?'checked':''} onchange="_routes.routes[${i}].facebookAutoPublish=this.checked;_routes.routes[${i}].published=this.checked;setRouteBadge(${i})"> Facebook tự đăng công khai</label>
      <label class="sw rsw rsw-warn"><input type="checkbox" ${r.gbpAutoPublish?'checked':''} onchange="_routes.routes[${i}].gbpAutoPublish=this.checked;setRouteBadge(${i})" ${gbpIdsR(r).length?'':'disabled'}> Google Business tự đăng</label>
     </div>
@@ -1042,7 +1043,7 @@ function paintRoutes(){const data=window._routes||{routes:[]};const list=Array.i
   `<div class="card"><div class="row"><button class="btn-primary" onclick="saveRoutes()">Lưu cấu hình</button><button class="btn-ghost" onclick="addRoute()">+ Thêm nhóm</button>${groups===null?'<span class="field-help">Chưa tải được danh sách nhóm (Zalo chưa kết nối) — tạm nhập mã nhóm tay.</span>':''}</div></div>`;
 }
 async function deleteRoute(e,i){e.stopPropagation();const r=window._routes&&window._routes.routes&&window._routes.routes[i];const name=r&&r.label?`"${r.label}"`:`Nhóm ${i+1}`;if(!await confirmModal(`Xoá ${name}?`,'Nhóm này sẽ bị xoá khỏi cấu hình. Các bài đã đăng không bị ảnh hưởng.','Xoá nhóm','btn-danger'))return;window._routes.routes.splice(i,1);paintRoutes();saveRoutes()}
-function addRoute(){if(!window._routes)window._routes={routes:[]};window._routes.routes.push({threadId:'',label:'',folder:'',fanpageId:'',fanpageTokenEnv:'',published:false,facebookAutoPublish:false,gbpAutoPublish:false,enabled:true,comment:'',captionFooter:'',writeGuide:'',autoHashtags:true,gbpLocationIds:[],gbpLocationId:'',debounceMs:60000,maxWaitMs:300000});paintRoutes()}
+function addRoute(){if(!window._routes)window._routes={routes:[]};window._routes.routes.push({threadId:'',label:'',folder:'',fanpageId:'',fanpageTokenEnv:'',published:false,facebookAutoPublish:false,gbpAutoPublish:false,enabled:true,curateImages:true,comment:'',captionFooter:'',writeGuide:'',autoHashtags:true,gbpLocationIds:[],gbpLocationId:'',debounceMs:60000,maxWaitMs:300000});paintRoutes()}
 async function clearComment(i){if(!await confirmModal('Xoá bình luận tự động?','Nhóm này sẽ không tự bình luận dưới bài nữa.','Xoá','btn-danger'))return;window._routes.routes[i].comment='';const e=$('#r_cmt_'+i);if(e)e.value='';saveRoutes()}
 function toggleField(id){const f=$('#fld_'+id);if(!f)return;const collapsed=f.classList.toggle('hide');const a=$('#arrow_'+id);if(a)a.classList.toggle('open',!collapsed);
  const btn=document.querySelector(`[onclick="toggleField('${id}')"]`);

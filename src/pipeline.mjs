@@ -40,11 +40,20 @@ export async function processBatch(batch, reason, opts = {}) {
   onStage("Đang tải ảnh/video về", { images: imageItems.length, videos: videoItems.length });
   const images = await ensureBuffers(imageItems, log);
 
-  // 2) lọc: dedup + mờ/tối + AI chọn ảnh đẹp trong cụm trùng
-  onStage("AI đang lọc ảnh (bỏ trùng/mờ/tối)", { received: images.length });
-  const usePick = opts.disableAI ? null : (members) => pickBest(members, { log });
-  const { kept, dropped } = await curate(images, { pickBest: usePick, maxKeep: opts.maxKeep || Infinity });
-  onStage("Đã chọn ảnh", { kept: kept.length, dropped: dropped.length });
+  // 2) lọc: dedup + mờ/tối + AI chọn ảnh đẹp trong cụm trùng — có thể TẮT theo cấu hình nhóm
+  let kept, dropped;
+  if (opts.curate === false) {
+    // Giữ NGUYÊN mọi ảnh gửi vào (không bỏ trùng/mờ/tối, không để AI chọn) — chỉ sắp theo thời gian gửi.
+    onStage("Giữ tất cả ảnh (không lọc)", { received: images.length });
+    kept = [...images].sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    dropped = [];
+    onStage("Đã nhận ảnh", { kept: kept.length, dropped: 0 });
+  } else {
+    onStage("AI đang lọc ảnh (bỏ trùng/mờ/tối)", { received: images.length });
+    const usePick = opts.disableAI ? null : (members) => pickBest(members, { log });
+    ({ kept, dropped } = await curate(images, { pickBest: usePick, maxKeep: opts.maxKeep || Infinity }));
+    onStage("Đã chọn ảnh", { kept: kept.length, dropped: dropped.length });
+  }
 
   // 3) format ảnh giữ lại + lưu
   const savedImages = [];
