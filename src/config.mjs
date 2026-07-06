@@ -49,6 +49,8 @@ export function loadConfig(file = process.env.ROUTES_FILE || DEFAULT_FILE) {
       curateImages: r.curateImages !== false, // mặc định BẬT: lọc ảnh (bỏ trùng/mờ/tối + AI chọn ảnh đẹp trong cụm)
       gbpLocationIds: gbpIds,            // NHIỀU GBP business; rỗng = không đăng GBP
       gbpLocationId: gbpIds[0] || "",    // tương thích ngược (1 ID)
+      // Kênh Media Hub (Postiz) RIÊNG của nhóm này; rỗng = dùng kênh mặc định (POSTIZ_INTEGRATION_ID)
+      postizIntegrationId: (r.postizIntegrationId || "").toString(),
     });
   }
   return { defaults, byThread, file };

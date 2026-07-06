@@ -130,11 +130,13 @@ async function main() {
         const channels = ["facebook", ...(gbpForThisPost ? ["gbp"] : [])];
         const needsReview = channels.some((ch) => approvals[ch]?.status !== "posted");
         const finalDraft = { ...draft, approvals, published, links };
-        // Cầu nối Postiz: đẩy bản nháp sang Việt Anh Media Hub (nếu bật ở /postiz). Chạy nền, không chặn.
+        // Cầu nối Media Hub: đẩy bản nháp sang Social Hub (nếu bật). Chạy nền.
+        // Đánh dấu pushedToHub khi thành công → panel Zalo KHÔNG hiện nút "Đẩy
+        // sang Media Hub" lần nữa (tránh nhân đôi bài chờ duyệt).
         if (process.env.POSTIZ_ENABLED === "true") {
-          pushToPostiz({ caption: draft.caption, imagePaths: draft.savedImages || [], videoPaths: draft.savedVideos || [], groupName: route.label })
-            .then((r) => { if (r?.ok) store.pushLog(`Đã đẩy bản nháp "${route.label}" sang Postiz (${r.media} media).`); else if (r && !r.skipped) store.pushLog(`Đẩy Postiz lỗi: ${r.error || r.status}`); })
-            .catch((e) => store.pushLog(`Đẩy Postiz lỗi: ${e.message}`));
+          pushToPostiz({ caption: draft.caption, imagePaths: draft.savedImages || [], videoPaths: draft.savedVideos || [], imageCaptions: draft.imageCaptions || [], videoCaptions: draft.videoCaptions || [], groupName: route.label, integrationId: route.postizIntegrationId || '' })
+            .then((r) => { if (r?.ok) { try { store.updatePending(draft.id, { pushedToHub: true }); } catch {} store.pushLog(`Đã đẩy bản nháp "${route.label}" sang Media Hub (${r.media} media).`); } else if (r && !r.skipped) store.pushLog(`Đẩy Media Hub lỗi: ${r.error || r.status}`); })
+            .catch((e) => store.pushLog(`Đẩy Media Hub lỗi: ${e.message}`));
         }
         if (autoPosted) store.addPosted({ ...finalDraft, postedAt: Date.now(), partial: needsReview });
         if (needsReview) {

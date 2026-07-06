@@ -51,39 +51,60 @@ async function uploadLocalFile(base, apiKey, filePath) {
 }
 
 // Đẩy 1 bài nháp vào Postiz.
-//   caption    : nội dung
-//   imagePaths : mảng đường dẫn FILE ẢNH local (từ draft.savedImages)
-//   videoPaths : mảng đường dẫn FILE VIDEO local (từ draft.savedVideos)
-//   groupName  : tên nhóm/route (để log)
-export async function pushToPostiz({ caption = '', imagePaths = [], videoPaths = [], groupName = '' }) {
+//   caption       : nội dung bài
+//   imagePaths    : mảng đường dẫn FILE ẢNH local (từ draft.savedImages)
+//   videoPaths    : mảng đường dẫn FILE VIDEO local (từ draft.savedVideos)
+//   imageCaptions : caption riêng TỪNG ảnh (cùng thứ tự imagePaths) → gắn vào alt
+//   videoCaptions : caption riêng từng video (cùng thứ tự videoPaths)
+//   groupName     : tên nhóm/route (để log)
+//   integrationId : kênh Media Hub RIÊNG của nhóm (route.postizIntegrationId);
+//                   bỏ trống = dùng kênh mặc định POSTIZ_INTEGRATION_ID
+export async function pushToPostiz({
+  caption = '',
+  imagePaths = [],
+  videoPaths = [],
+  imageCaptions = [],
+  videoCaptions = [],
+  groupName = '',
+  integrationId = '',
+}) {
   if (process.env.POSTIZ_ENABLED !== 'true') return { skipped: 'disabled' };
 
   const apiKey = process.env.POSTIZ_API_KEY;
-  const integrationId = process.env.POSTIZ_INTEGRATION_ID;
-  if (!apiKey || !integrationId) {
+  const targetIntegration = integrationId || process.env.POSTIZ_INTEGRATION_ID;
+  if (!apiKey || !targetIntegration) {
     return { skipped: 'missing-config' };
   }
   const base = apiUrl();
 
-  // Upload media local -> lấy {id, path}
+  // Upload media local -> lấy {id, path}; kèm alt = caption riêng từng ảnh/video
+  // (Media Hub hiển thị/sửa alt khi bấm vào ảnh trong composer, và đăng kèm bài).
   const media = [];
-  for (const f of [...(imagePaths || []), ...(videoPaths || [])]) {
+  const files = [
+    ...(imagePaths || []).map((f, i) => ({ f, alt: (imageCaptions || [])[i] || '' })),
+    ...(videoPaths || []).map((f, i) => ({ f, alt: (videoCaptions || [])[i] || '' })),
+  ];
+  for (const { f, alt } of files) {
     try {
       const m = await uploadLocalFile(base, apiKey, f);
-      media.push({ id: m.id, path: m.path });
+      media.push({ id: m.id, path: m.path, ...(alt ? { alt } : {}) });
     } catch (e) {
       console.warn(`[postiz] upload lỗi (${path.basename(f)}): ${e.message}`);
     }
   }
 
   const body = {
-    type: 'draft', // vào hàng chờ duyệt trong Postiz
-    date: new Date().toISOString(),
-    tags: [],
+    type: 'draft', // vào hàng chờ duyệt trong Media Hub
+    // +2h: bài "chờ duyệt" nằm ở tương lai gần → hiện trên calendar hôm nay
+    // và không rơi khỏi tab Draft (tab này chỉ hiện bài có ngày >= hiện tại).
+    date: new Date(Date.now() + 2 * 3600 * 1000).toISOString(),
+    // Tag "Zalo" để Media Hub nhận diện bài chờ duyệt từ nhóm Zalo
+    // (trang Zalo trong Media Hub tự tạo tag này khi bật cầu nối).
+    tags: [{ value: 'Zalo', label: 'Zalo' }],
     shortLink: false,
     posts: [
       {
-        integration: { id: integrationId },
+        integration: { id: targetIntegration },
         value: [{ content: caption || '', image: media }],
       },
     ],

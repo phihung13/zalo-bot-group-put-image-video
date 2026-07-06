@@ -15,6 +15,49 @@ import { loadConfig, routeForThread } from "./config.mjs";
 import { rewriteCaption, reapplyTail } from "./caption.mjs";
 import { formatImage } from "./format.mjs";
 import { dataPath, CRED_FILE, QR_FILE, saveToken, removeToken } from "./paths.mjs";
+import { pushToPostiz } from "./postiz.mjs";
+
+// Trang cấu hình cầu nối Postiz (Việt Anh Media Hub) — phục vụ tại GET /postiz
+const POSTIZ_CONFIG_PAGE = `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cấu hình Postiz</title><style>
+body{font-family:'Segoe UI',system-ui,Arial,sans-serif;background:#eef2f7;color:#1a2433;margin:0;padding:24px}
+.card{max-width:560px;margin:0 auto;background:#fff;border-radius:14px;box-shadow:0 6px 20px rgba(16,32,64,.08);padding:22px}
+h1{font-size:19px;margin:0 0 4px}.sub{color:#6b7688;font-size:13px;margin:0 0 18px}
+label{display:block;font-weight:600;font-size:13px;margin:14px 0 5px}
+input,select{width:100%;box-sizing:border-box;padding:10px;border:1px solid #d8e0ea;border-radius:9px;font-size:14px}
+.row{display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap}
+button{background:#1e6fd9;color:#fff;border:0;border-radius:9px;padding:11px 16px;font-weight:600;font-size:14px;cursor:pointer}
+button.ghost{background:#fff;color:#1e6fd9;border:1px solid #cfe0f5}
+.toggle{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px}
+.msg{margin-top:14px;font-size:13px;padding:10px;border-radius:8px;display:none}
+.msg.ok{background:#dcfce7;color:#15803d;display:block}.msg.err{background:#fee2e2;color:#b91c1c;display:block}
+.hint{color:#6b7688;font-size:12px;margin-top:4px;font-weight:400}
+</style></head><body><div class="card">
+<h1>🔗 Kết nối Postiz — Việt Anh Media Hub</h1>
+<p class="sub">Ảnh từ nhóm Zalo sẽ được đẩy sang Postiz thành bản nháp chờ duyệt.</p>
+<div style="border:1px solid #e5ebf2;border-radius:11px;padding:14px;margin-bottom:14px;background:#f8fbff">
+<b style="font-size:14px">🤖 Claude API key <span class="hint">(để AI viết caption cho ảnh Zalo)</span></b>
+<input id="claudeKey" type="password" placeholder="sk-ant-..." style="margin-top:8px">
+<div class="row"><button onclick="saveClaude()">Lưu key Claude</button><span id="claudeStat" class="hint"></span></div>
+</div>
+<label>Địa chỉ Postiz backend</label><input id="apiUrl" placeholder="http://localhost:3000">
+<label>API key Postiz <span class="hint">(Postiz → Settings → Public API)</span></label><input id="key" type="password" placeholder="dán API key...">
+<div class="row"><button class="ghost" onclick="loadChannels()">Lưu key & Tải danh sách kênh</button></div>
+<label>Kênh đích trong Postiz</label><select id="integration"><option value="">— Bấm "Tải danh sách kênh" trước —</option></select>
+<div class="row"><label class="toggle"><input type="checkbox" id="enabled"> Bật đẩy sang Postiz</label></div>
+<div class="row"><button onclick="save()">Lưu cấu hình</button><button class="ghost" onclick="clearCfg()">Xoá</button></div>
+<div id="msg" class="msg"></div></div><script>
+var $=function(id){return document.getElementById(id)};
+function show(t,ok){var m=$('msg');m.textContent=t;m.className='msg '+(ok?'ok':'err')}
+async function jget(u){var r=await fetch(u,{credentials:'same-origin'});return r.json()}
+async function jpost(u,b){var r=await fetch(u,{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify(b)});return r.json()}
+async function load(){try{var s=await jget('/api/postiz/status');$('apiUrl').value=s.apiUrl||'http://localhost:3000';$('enabled').checked=!!s.enabled;if(s.hasKey)$('key').placeholder='đã lưu ('+s.masked+') — để trống nếu giữ nguyên';window._intid=s.integrationId||''}catch(e){}}
+async function loadChannels(){var body={apiUrl:$('apiUrl').value};if($('key').value)body.key=$('key').value;await jpost('/api/postiz/config',body);var d=await jget('/api/postiz/integrations');var sel=$('integration');if(!d.ok){show(d.error||'Không tải được kênh',false);return}sel.innerHTML='';if(!d.integrations.length){sel.innerHTML='<option value="">(chưa có kênh — kết nối kênh trong Postiz trước)</option>';show('Kết nối OK nhưng Postiz chưa có kênh nào.',true);return}d.integrations.forEach(function(i){var o=document.createElement('option');o.value=i.id;o.textContent=(i.name||i.id)+' ['+(i.identifier||'')+']';if(i.id===window._intid)o.selected=true;sel.appendChild(o)});show('Đã tải '+d.integrations.length+' kênh. Chọn kênh rồi Lưu.',true)}
+async function save(){var body={apiUrl:$('apiUrl').value,integrationId:$('integration').value,enabled:$('enabled').checked};if($('key').value)body.key=$('key').value;var r=await jpost('/api/postiz/config',body);if(r.ok)show('Đã lưu cấu hình Postiz.',true);else show(r.error||'Lỗi lưu',false)}
+async function clearCfg(){await jpost('/api/postiz/config',{clear:true});show('Đã xoá cấu hình Postiz.',true);setTimeout(load,300)}
+async function loadClaude(){try{var s=await jget('/api/claude/status');$('claudeStat').textContent=s.hasKey?('✓ đã lưu ('+s.masked+')'):'chưa có key';if(s.hasKey)$('claudeKey').placeholder='đã lưu ('+s.masked+') — để trống nếu giữ nguyên'}catch(e){}}
+async function saveClaude(){var k=$('claudeKey').value.trim();if(!k){show('Nhập key Claude (sk-ant-...)',false);return}var r=await jpost('/api/claude/key',{key:k});if(r.ok){show('Đã lưu key Claude.',true);$('claudeKey').value='';loadClaude()}else show(r.error||'Lỗi lưu key Claude',false)}
+load();loadClaude();
+</script></body></html>`;
 
 const ROUTES_FILE = process.env.ROUTES_FILE || "config/routes.json";
 const PAGE_FILE = path.resolve("public/index.html");
@@ -80,13 +123,30 @@ export function startWeb(ctx = {}) {
 
   const USER = process.env.DASHBOARD_USER || "admin";
   const PASS = process.env.DASHBOARD_PASS || "admin";
+  // Từ chối chạy với mật khẩu dashboard mặc định/yếu — dashboard nắm token
+  // Facebook + App Secret + phiên Zalo, không được để "admin".
+  if (!process.env.DASHBOARD_PASS || PASS === "admin" || PASS.length < 8) {
+    console.error("❌ DASHBOARD_PASS chưa đặt hoặc quá yếu — đặt mật khẩu mạnh (≥8 ký tự) trong D:\\Zalo bot group\\.env rồi khởi động lại.");
+    process.exit(1);
+  }
   // Phiên đăng nhập dashboard — lưu xuống file để KHÔNG bị đăng xuất khi service tự khởi động lại (đổi tài khoản Zalo).
   const SESS_FILE = dataPath("data/sessions.json");
   const sessions = new Set((() => { try { return JSON.parse(fs.readFileSync(SESS_FILE, "utf8")); } catch { return []; } })());
   const saveSessions = () => { try { fs.mkdirSync(path.dirname(SESS_FILE), { recursive: true }); fs.writeFileSync(SESS_FILE, JSON.stringify([...sessions])); } catch {} };
 
   const parseCookies = (req) => Object.fromEntries((req.headers.cookie || "").split(";").map((c) => c.trim().split("=").map(decodeURIComponent)).filter((x) => x[0]));
-  const authed = (req) => sessions.has(parseCookies(req).sid);
+  // Media Hub gọi API dashboard qua proxy /botapi kèm header x-hub-token.
+  // Proxy CHỈ gắn token sau khi đã verify JWT đăng nhập của Hub, và token phải
+  // KHỚP HUB_BOT_TOKEN (bí mật chung đặt trong .env cả 2 bên, ≥16 ký tự).
+  // Không đặt HUB_BOT_TOKEN thì cơ chế này tắt hẳn (chỉ còn phiên dashboard).
+  const HUB_TOKEN = String(process.env.HUB_BOT_TOKEN || "");
+  const hubTokenOk = (req) => {
+    if (HUB_TOKEN.length < 16) return false;
+    const got = String(req.headers["x-hub-token"] || "");
+    if (got.length !== HUB_TOKEN.length) return false;
+    try { return crypto.timingSafeEqual(Buffer.from(got), Buffer.from(HUB_TOKEN)); } catch { return false; }
+  };
+  const authed = (req) => sessions.has(parseCookies(req).sid) || hubTokenOk(req);
   const requireAuth = (req, res, next) => (authed(req) ? next() : res.status(401).json({ error: "Chưa đăng nhập" }));
 
   // ===== Auth =====
@@ -558,8 +618,21 @@ export function startWeb(ctx = {}) {
 
   // ===== Danh sách nhóm Zalo (cho bộ chọn ở tab Nhóm → Page) =====
   const GROUPS_FILE = dataPath("data/groups.json");
-  let _groupsCache = null, _groupsAt = 0, _groupsRefreshing = false, _groupsPromise = null;
-  try { const j = JSON.parse(fs.readFileSync(GROUPS_FILE, "utf8")); _groupsCache = j.groups; _groupsAt = j.at || 0; } catch {}
+  // Cache danh sách nhóm GẮN theo tài khoản Zalo (_groupsOwnId). Đổi nick → ownId
+  // khác → cache cũ bị coi là "của tài khoản khác" và bỏ đi (không hiện nhóm cũ).
+  let _groupsCache = null, _groupsAt = 0, _groupsRefreshing = false, _groupsPromise = null, _groupsOwnId = null;
+  try { const j = JSON.parse(fs.readFileSync(GROUPS_FILE, "utf8")); _groupsCache = j.groups; _groupsAt = j.at || 0; _groupsOwnId = j.ownId || null; } catch {}
+  const curOwnId = () => (ctx.status && ctx.status.ownId != null ? String(ctx.status.ownId) : null);
+  // Cache thuộc tài khoản KHÁC tài khoản đang đăng nhập? (đã biết cả 2 id và lệch nhau)
+  const cacheIsOtherAccount = () => {
+    const cur = curOwnId();
+    return !!(cur && _groupsOwnId && cur !== String(_groupsOwnId));
+  };
+  // Xóa sạch cache nhóm (bộ nhớ + file) — dùng khi logout / đổi tài khoản.
+  const clearGroupsCache = () => {
+    _groupsCache = null; _groupsAt = 0; _groupsOwnId = null;
+    try { fs.rmSync(GROUPS_FILE, { force: true }); } catch {}
+  };
   async function refreshGroups(zalo) {
     const all = await zalo.getAllGroups();
     const ids = Object.keys(all.gridVerMap || {});
@@ -573,8 +646,8 @@ export function startWeb(ctx = {}) {
       groups.push(...infos);
     }
     groups.sort((a, b) => a.name.localeCompare(b.name, "vi"));
-    _groupsCache = groups; _groupsAt = Date.now();
-    try { fs.mkdirSync(path.dirname(GROUPS_FILE), { recursive: true }); fs.writeFileSync(GROUPS_FILE, JSON.stringify({ at: _groupsAt, groups })); } catch {}
+    _groupsCache = groups; _groupsAt = Date.now(); _groupsOwnId = curOwnId();
+    try { fs.mkdirSync(path.dirname(GROUPS_FILE), { recursive: true }); fs.writeFileSync(GROUPS_FILE, JSON.stringify({ at: _groupsAt, ownId: _groupsOwnId, groups })); } catch {}
     return groups;
   }
   // Lọc theo allowlist (chỉ hiện nhóm đã chọn). Nhóm đã cấu hình route LUÔN hiện.
@@ -587,8 +660,10 @@ export function startWeb(ctx = {}) {
   };
   app.get("/api/zalo/groups", requireAuth, async (req, res) => {
     const zalo = ctx.getZalo && ctx.getZalo();
+    if (cacheIsOtherAccount()) clearGroupsCache(); // đổi nick → bỏ cache tài khoản cũ
+    const force = req.query.force === '1' || req.query.force === 'true';
     const fresh = _groupsCache && Date.now() - _groupsAt < 300000; // 5 phút
-    if (_groupsCache) {
+    if (_groupsCache && !force) {
       res.json(filterGroups(_groupsCache)); // trả NGAY (kể cả hơi cũ)
       if (!fresh && zalo && !_groupsRefreshing) { _groupsRefreshing = true; refreshGroups(zalo).catch(() => {}).finally(() => { _groupsRefreshing = false; }); }
       return;
@@ -699,13 +774,42 @@ export function startWeb(ctx = {}) {
     res.json(s);
   });
 
+  // CORS cho panel Zalo nhúng/goi truc tiep tu giao dien Postiz (localhost:4200).
+  // Chi ap cho /api/postiz/* va /api/claude/* (cac API cau hinh cau noi).
+  // CHỈ whitelist origin của Media Hub — KHÔNG phản chiếu mọi origin, nếu không
+  // web độc hại bất kỳ đọc được groups/logs/QR và ghi được routes qua trình duyệt.
+  const HUB_ORIGINS = new Set([
+    "http://localhost:4200",
+    "http://127.0.0.1:4200",
+  ]);
+  // Media Hub mở từ điện thoại/tablet trong LAN có origin http://<IP-private>:4200
+  const HUB_LAN_RE = /^https?:\/\/(10\.[0-9.]+|192\.168\.[0-9.]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9.]+):4200$/i;
+  const isHubOrigin = (o) => !!o && (HUB_ORIGINS.has(o) || HUB_LAN_RE.test(o));
+  const zaloPanelCors = (req, res, next) => {
+    const origin = req.headers.origin;
+    if (isHubOrigin(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "content-type");
+    }
+    res.setHeader("Vary", "Origin");
+    if (req.method === "OPTIONS") return res.status(204).end();
+    next();
+  };
+  app.use(["/api/postiz", "/api/claude"], zaloPanelCors);
+  // Bind ra ngoài 127.0.0.1 (Docker/compose): nhóm /api/postiz|/api/claude mất
+  // lớp bảo vệ "chỉ localhost" → bắt buộc auth (phiên dashboard / HUB_BOT_TOKEN).
+  if ((process.env.WEB_HOST || "127.0.0.1") !== "127.0.0.1") {
+    app.use(["/api/postiz", "/api/claude"], requireAuth);
+  }
+
   // ===== Claude API Key =====
-  app.get("/api/claude/status", requireAuth, (req, res) => {
+  app.get("/api/claude/status", (req, res) => {
     const key = process.env.ANTHROPIC_API_KEY || "";
     res.json({ hasKey: !!key, masked: key ? key.slice(0, 14) + "…" : "", model: process.env.CLAUDE_MODEL || "claude-sonnet-4-6" });
   });
 
-  app.post("/api/claude/key", requireAuth, (req, res) => {
+  app.post("/api/claude/key", (req, res) => {
     const { key, model, clear } = req.body || {};
     if (clear) { removeToken("ANTHROPIC_API_KEY"); store.pushLog("Đã xoá API key Claude (về trống)."); return res.json({ ok: true, cleared: true }); }
     if (key) {
@@ -716,7 +820,7 @@ export function startWeb(ctx = {}) {
     res.json({ ok: true });
   });
 
-  app.get("/api/claude/test", requireAuth, async (req, res) => {
+  app.get("/api/claude/test", async (req, res) => {
     const key = process.env.ANTHROPIC_API_KEY;
     if (!key) return res.status(400).json({ ok: false, error: "Chưa có API key" });
     try {
@@ -729,6 +833,307 @@ export function startWeb(ctx = {}) {
       });
       res.json({ ok: true, model: msg.model });
     } catch (e) { res.json({ ok: false, error: e.message }); }
+  });
+
+  // ===== Postiz (Việt Anh Media Hub) — cấu hình cầu nối =====
+  app.get('/api/postiz/status', (req, res) => {
+    const key = process.env.POSTIZ_API_KEY || '';
+    res.json({
+      enabled: process.env.POSTIZ_ENABLED === 'true',
+      apiUrl: process.env.POSTIZ_API_URL || 'http://localhost:3000',
+      hasKey: !!key,
+      masked: key ? key.slice(0, 10) + '…' : '',
+      integrationId: process.env.POSTIZ_INTEGRATION_ID || '',
+      // Trạng thái đăng nhập Zalo (cho trang Zalo trong Postiz hiển thị):
+      zaloConnected: !!(ctx.status && ctx.status.zaloConnected),
+      zaloRelogging: !!(ctx.status && ctx.status.relogging),
+    });
+  });
+
+  app.post('/api/postiz/config', (req, res) => {
+    const { apiUrl, key, integrationId, enabled, clear } = req.body || {};
+    if (clear) {
+      removeToken('POSTIZ_API_KEY');
+      removeToken('POSTIZ_INTEGRATION_ID');
+      saveToken('POSTIZ_ENABLED', 'false');
+      store.pushLog('Đã xoá cấu hình Postiz.');
+      return res.json({ ok: true, cleared: true });
+    }
+    if (apiUrl != null) saveToken('POSTIZ_API_URL', String(apiUrl).trim() || 'http://localhost:3000');
+    if (key) saveToken('POSTIZ_API_KEY', String(key).trim());
+    if (integrationId != null) saveToken('POSTIZ_INTEGRATION_ID', String(integrationId).trim());
+    if (enabled != null) saveToken('POSTIZ_ENABLED', enabled ? 'true' : 'false');
+    store.pushLog('Đã lưu cấu hình Postiz.');
+    res.json({ ok: true });
+  });
+
+  app.get('/api/postiz/integrations', async (req, res) => {
+    const base = (process.env.POSTIZ_API_URL || 'http://localhost:3000').replace(/\/$/, '');
+    const key = process.env.POSTIZ_API_KEY;
+    if (!key) return res.status(400).json({ ok: false, error: 'Chưa lưu API key Postiz' });
+    try {
+      const r = await fetch(base + '/public/v1/integrations', { headers: { Authorization: key } });
+      const t = await r.text();
+      if (!r.ok) return res.status(400).json({ ok: false, error: 'Postiz ' + r.status + ': ' + t.slice(0, 200) });
+      let list;
+      try { list = JSON.parse(t); } catch { list = []; }
+      list = Array.isArray(list) ? list : list.integrations || [];
+      res.json({ ok: true, integrations: list.map((i) => ({ id: i.id, name: i.name, identifier: i.identifier || i.providerIdentifier })) });
+    } catch (e) {
+      res.status(400).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ===== API cho TRANG ZALO trong Việt Anh Media Hub (:4200) =====
+  // Cùng prefix /api/postiz nên hưởng CORS ở trên; giữ nguyên mô hình không auth
+  // của nhóm này (chỉ chạy localhost). Trang Zalo trong Media Hub dùng các API
+  // này để thành trung tâm điều khiển: tổng quan, QR đăng nhập, nhóm nghe, log.
+
+  // Tổng quan: trạng thái Zalo + nhóm đang nghe + hàng chờ của bot.
+  app.get('/api/postiz/overview', (req, res) => {
+    const cfg = loadConfig();
+    const routes = [...cfg.byThread.values()].map((r) => ({
+      threadId: String(r.threadId),
+      label: r.label || '',
+      enabled: r.enabled !== false,
+      debounceMs: r.debounceMs,
+      maxWaitMs: r.maxWaitMs,
+      postizIntegrationId: r.postizIntegrationId || '',
+    }));
+    const settings = store.getSettings();
+    res.json({
+      zaloConnected: !!(ctx.status && ctx.status.zaloConnected),
+      zaloRelogging: !!(ctx.status && ctx.status.relogging),
+      ownId: (ctx.status && ctx.status.ownId) || null,
+      hasQr: fs.existsSync(QR_FILE),
+      paused: !!settings.paused,
+      pendingCount: store.listPending().length,
+      routes,
+    });
+  });
+
+  // QR đăng nhập Zalo — để quét ngay trong Media Hub, khỏi mở dashboard bot.
+  app.get('/api/postiz/qr', (req, res) => {
+    if (!fs.existsSync(QR_FILE)) return res.status(404).end();
+    res.setHeader('Cache-Control', 'no-store');
+    res.sendFile(QR_FILE);
+  });
+
+  app.post('/api/postiz/zalo/reconnect', (req, res) => {
+    clearGroupsCache();
+    if (ctx.reconnect) {
+      ctx.reconnect().catch(() => {});
+      store.pushLog('Yêu cầu kết nối lại Zalo từ Media Hub.');
+      return res.json({ ok: true, reconnecting: true });
+    }
+    res.status(501).json({ error: 'Service này chưa hỗ trợ kết nối lại trong tiến trình' });
+  });
+
+  // Danh sách nhóm Zalo (cache 5 phút, giống /api/zalo/groups).
+  app.get('/api/postiz/groups', async (req, res) => {
+    const zalo = ctx.getZalo && ctx.getZalo();
+    if (cacheIsOtherAccount()) clearGroupsCache(); // đổi nick → bỏ cache tài khoản cũ
+    const force = req.query.force === '1' || req.query.force === 'true';
+    const fresh = _groupsCache && Date.now() - _groupsAt < 300000;
+    if (_groupsCache && !force) {
+      res.json(filterGroups(_groupsCache));
+      if (!fresh && zalo && !_groupsRefreshing) { _groupsRefreshing = true; refreshGroups(zalo).catch(() => {}).finally(() => { _groupsRefreshing = false; }); }
+      return;
+    }
+    if (!zalo) return res.status(503).json({ error: 'Zalo chưa kết nối — không lấy được danh sách nhóm' });
+    try {
+      if (!_groupsPromise) _groupsPromise = refreshGroups(zalo).finally(() => { _groupsPromise = null; });
+      res.json(filterGroups(await _groupsPromise));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Sửa route 1 nhóm từ Media Hub (kiểu PATCH — chỉ đổi field có gửi lên):
+  //   { threadId, name?, enabled?, integrationId? }
+  //   enabled: bật/tắt nghe; integrationId: kênh Media Hub RIÊNG ('' = kênh mặc định).
+  // Chưa có route thì tạo tối thiểu (chỉ nghe → đẩy Media Hub; FB/GBP ở dashboard bot).
+  app.post('/api/postiz/routes', (req, res) => {
+    try {
+      const { threadId, name, enabled, integrationId } = req.body || {};
+      if (!threadId) return res.status(400).json({ error: 'thiếu threadId' });
+      const data = JSON.parse(fs.readFileSync(ROUTES_FILE, 'utf8'));
+      data.routes = Array.isArray(data.routes) ? data.routes : [];
+      const found = data.routes.find((r) => String(r.threadId) === String(threadId));
+      if (found) {
+        if (enabled !== undefined) found.enabled = enabled !== false;
+        if (integrationId !== undefined) found.postizIntegrationId = String(integrationId || '');
+        if (name && !found.label) found.label = String(name);
+      } else {
+        data.routes.push({
+          threadId: String(threadId),
+          label: String(name || threadId),
+          enabled: enabled !== false,
+          ...(integrationId ? { postizIntegrationId: String(integrationId) } : {}),
+          facebookAutoPublish: false,
+          gbpAutoPublish: false,
+        });
+      }
+      fs.writeFileSync(ROUTES_FILE, JSON.stringify(data, null, 2));
+      ctx.reloadConfig && ctx.reloadConfig();
+      const action = integrationId !== undefined
+        ? `đổi kênh đích nhóm (${integrationId ? 'kênh riêng' : 'kênh mặc định'})`
+        : `${enabled !== false ? 'bật' : 'tắt'} nghe nhóm`;
+      store.pushLog(`Media Hub ${action}: ${name || threadId}`);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Nhật ký gần đây (mới → cũ) cho trang Zalo trong Media Hub.
+  app.get('/api/postiz/logs', (req, res) => res.json(store.getLogs().slice(-80).reverse()));
+
+  // --- Hàng chờ của bot (duyệt đăng thẳng Facebook/GBP) ---
+  app.get('/api/postiz/pending', (req, res) => {
+    const cfg = loadConfig();
+    res.json(store.listPending().map((d) => {
+      const route = routeForThread(cfg, d.threadId) || {};
+      return {
+        id: d.id,
+        routeLabel: d.routeLabel || route.label || '',
+        caption: d.caption || '',
+        imageCaptions: d.imageCaptions || [],
+        createdAt: d.createdAt || 0,
+        scheduledAt: d.scheduledAt || null,
+        imageCount: (d.savedImages || []).length,
+        videoCount: (d.savedVideos || []).length,
+        approvals: approvalsOf(d, route),
+        hasFbToken: !!route.fanpageToken,
+        gbpCount: gbpIdsOf(d, route).length,
+        pushedToHub: !!d.pushedToHub, // đã tự đẩy sang Media Hub → khỏi đẩy lại
+      };
+    }));
+  });
+
+  // Ảnh của bài trong hàng chờ (stream từ đĩa — /output cần login nên không dùng được từ Hub).
+  app.get('/api/postiz/draft-image/:id/:idx', (req, res) => {
+    const d = store.getPending(req.params.id);
+    const f = d && (d.savedImages || [])[Number(req.params.idx)];
+    if (!f || !fs.existsSync(f)) return res.status(404).end();
+    res.setHeader('Cache-Control', 'no-store');
+    res.sendFile(f);
+  });
+
+  app.post('/api/postiz/pending/:id/save', (req, res) => {
+    const d = store.getPending(req.params.id);
+    if (!d) return res.status(404).json({ error: 'không thấy bài' });
+    const patch = {};
+    if (req.body?.caption != null) patch.caption = String(req.body.caption);
+    if (Array.isArray(req.body?.imageCaptions)) patch.imageCaptions = req.body.imageCaptions.map(String);
+    const next = store.updatePending(d.id, patch);
+    store.pushLog(`Media Hub sửa caption: ${d.routeLabel || d.id}`);
+    res.json(next);
+  });
+
+  // AI viết lại caption (trả về xem trước, không tự lưu — giống /api/pending/:id/rewrite).
+  app.post('/api/postiz/pending/:id/rewrite', async (req, res) => {
+    const d = store.getPending(req.params.id);
+    if (!d) return res.status(404).json({ error: 'không thấy bài' });
+    const cur = (req.body?.caption != null ? req.body.caption : d.caption) || '';
+    if (!cur.trim()) return res.status(400).json({ error: 'Bài chưa có nội dung để viết lại' });
+    const route = routeForThread(loadConfig(), d.threadId) || {};
+    try {
+      const out = await rewriteCaption(cur, { guide: route.writeGuide || route.styleSample || '', log: store.pushLog });
+      if (!out) return res.status(400).json({ error: 'AI chưa viết lại được — kiểm tra key Claude.' });
+      store.pushLog(`Media Hub: AI viết lại caption ${d.routeLabel || d.id}`);
+      res.json({ ok: true, caption: out });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Duyệt đăng thẳng Facebook (mirror /api/pending/:id/approve).
+  app.post('/api/postiz/pending/:id/approve', async (req, res) => {
+    const d = store.getPending(req.params.id);
+    if (!d) return res.status(404).json({ error: 'không thấy bài' });
+    const published = req.body?.published !== false;
+    const cfg = loadConfig();
+    const route = routeForThread(cfg, d.threadId) || { fanpageId: d.fanpageId, fanpageToken: process.env[d.fanpageTokenEnv], comment: '' };
+    if (!route.fanpageToken) return res.status(400).json({ error: 'Page chưa có token (vào dashboard bot → tab Token cấp trước)' });
+    try {
+      const r = await publishFacebookDraft(d, route, { published, comment: route.comment, log: store.pushLog });
+      const approvals = approvalsOf(d, route);
+      approvals.facebook = { status: 'posted', published, links: r.links, at: Date.now() };
+      const next = store.updatePending(d.id, { approvals, published, links: r.links });
+      rememberProcessedChannel(next || { ...d, approvals, published, links: r.links }, route, { approvals, published, links: r.links });
+      const done = completePendingIfDone(next || { ...d, approvals, published, links: r.links }, route);
+      store.pushLog(`FACEBOOK ĐÃ ${published ? 'ĐĂNG CÔNG KHAI' : 'LƯU NHÁP'} (từ Media Hub): ${d.routeLabel} → ${r.links.join(' ')}`);
+      res.json({ ok: true, done, links: r.links });
+    } catch (e) { store.pushLog('Đăng lỗi: ' + e.message); res.status(500).json({ error: e.message }); }
+  });
+
+  // Từ chối/xoá bài khỏi hàng chờ của bot (xoá cả ảnh trên đĩa).
+  app.post('/api/postiz/pending/:id/reject', (req, res) => {
+    const d = store.getPending(req.params.id);
+    if (d) { try { fs.rmSync(d.dir, { recursive: true, force: true }); } catch {} store.removePending(d.id); store.pushLog('Media Hub bỏ bài: ' + (d.routeLabel || d.id)); }
+    res.json({ ok: true });
+  });
+
+  // Đẩy tay 1 bài trong hàng chờ sang Media Hub (bài cũ trước khi bật cầu nối).
+  app.post('/api/postiz/pending/:id/push-hub', async (req, res) => {
+    const d = store.getPending(req.params.id);
+    if (!d) return res.status(404).json({ error: 'không thấy bài' });
+    if (process.env.POSTIZ_ENABLED !== 'true') return res.status(400).json({ error: 'Cầu nối đang tắt — bật ở bước 3 trước' });
+    try {
+      const route = routeForThread(loadConfig(), d.threadId) || {};
+      const r = await pushToPostiz({ caption: d.caption, imagePaths: d.savedImages || [], videoPaths: d.savedVideos || [], imageCaptions: d.imageCaptions || [], videoCaptions: d.videoCaptions || [], groupName: d.routeLabel || '', integrationId: route.postizIntegrationId || '' });
+      if (r?.ok) { store.pushLog(`Đẩy tay bài "${d.routeLabel}" sang Media Hub (${r.media} media).`); return res.json({ ok: true, media: r.media }); }
+      res.status(400).json({ error: r?.error || r?.skipped || 'không đẩy được' });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // --- Lắng nghe realtime theo nhóm (mirror /api/live, không auth như nhóm /api/postiz) ---
+  app.get('/api/postiz/live', (req, res) => {
+    const liveArr = ctx.getLive ? ctx.getLive() : [];
+    const byThread = {};
+    for (const s of liveArr) byThread[s.threadId] = s;
+    const cfg = loadConfig();
+    const threads = [];
+    for (const r of cfg.byThread.values()) {
+      if (r.enabled === false) continue;
+      const s = byThread[String(r.threadId)];
+      if (s) {
+        let st = { ...s, label: r.label, debounceMs: r.debounceMs, maxWaitMs: r.maxWaitMs };
+        if (st.phase === 'done' && st.proc && st.proc.draftId && !store.getPending(st.proc.draftId)) st = { ...st, phase: 'idle', proc: null, doneAt: 0 };
+        threads.push(st);
+      } else {
+        threads.push({ threadId: String(r.threadId), label: r.label, phase: 'idle', counts: { image: 0, video: 0, text: 0 }, events: [], startedAt: 0, lastEventAt: 0, debounceMs: r.debounceMs, maxWaitMs: r.maxWaitMs, proc: null, doneAt: 0 });
+      }
+    }
+    res.json({ connected: !!(ctx.status && ctx.status.zaloConnected), serverNow: Date.now(), threads });
+  });
+
+  app.post('/api/postiz/live/close', (req, res) => {
+    const threadId = req.body && req.body.threadId;
+    if (!threadId) return res.status(400).json({ error: 'thiếu threadId' });
+    if (!ctx.closeNow) return res.status(400).json({ error: 'không hỗ trợ chốt phiên' });
+    Promise.resolve(ctx.closeNow(String(threadId))).catch(() => {});
+    store.pushLog('Media Hub chốt phiên gom cho nhóm ' + threadId);
+    res.json({ ok: true });
+  });
+
+  // --- Cài đặt nhanh (tạm dừng bot) + đổi tài khoản Zalo ---
+  app.post('/api/postiz/settings', (req, res) => {
+    const s = store.setSettings(req.body || {});
+    store.pushLog(`Media Hub đổi cài đặt: duyệt=${s.approval} tạm dừng=${s.paused}`);
+    res.json(s);
+  });
+
+  app.post('/api/postiz/zalo/logout', (req, res) => {
+    clearGroupsCache();
+    if (ctx.relogin) {
+      ctx.relogin().catch(() => {});
+      store.pushLog('Media Hub: đăng xuất Zalo — chờ quét QR tài khoản mới.');
+      return res.json({ ok: true, relogin: true });
+    }
+    res.status(501).json({ error: 'Service này chưa hỗ trợ đổi tài khoản trong tiến trình' });
+  });
+
+  app.get('/postiz', (req, res) => {
+    // Cho phép nhúng trong giao diện Postiz (localhost:4200)
+    res.removeHeader('X-Frame-Options');
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'self' http://localhost:4200 http://127.0.0.1:4200");
+    res.type('html').send(POSTIZ_CONFIG_PAGE);
   });
 
   // ===== Cấu hình ứng dụng Facebook (App ID + Secret) qua dashboard =====
@@ -968,7 +1373,13 @@ export function startWeb(ctx = {}) {
   app.get("/", (req, res) => { res.set("Cache-Control", "no-store, must-revalidate"); res.sendFile(PAGE_FILE); });
 
   const PORT = Number(process.env.WEB_PORT || 8080);
-  const server = app.listen(PORT, () => console.log(`🌐 Web dashboard: http://localhost:${PORT}`));
+  // Bind 127.0.0.1: chỉ tiến trình trên CHÍNH máy chủ (Media Hub proxy /botapi
+  // đi qua 127.0.0.1) gọi được. Thiết bị LAN/tunnel KHÔNG gọi thẳng :8088 —
+  // phải qua Media Hub (đã verify JWT). Đóng lỗ hổng /api/postiz/* không auth.
+  // Docker: đặt WEB_HOST=0.0.0.0 để container Media Hub gọi qua mạng nội bộ
+  // compose (KHÔNG publish cổng ra ngoài; auth bằng HUB_BOT_TOKEN).
+  const HOST = process.env.WEB_HOST || '127.0.0.1';
+  const server = app.listen(PORT, HOST, () => console.log(`🌐 Web dashboard: http://${HOST}:${PORT}`));
   // WebSocket noVNC: chỉ cho phiên đã đăng nhập dashboard (gate bằng cookie sid)
   server.on("upgrade", (req, socket, head) => {
     if (!req.url || !req.url.startsWith("/vnc")) return;
