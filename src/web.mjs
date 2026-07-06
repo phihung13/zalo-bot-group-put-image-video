@@ -15,7 +15,7 @@ import { loadConfig, routeForThread } from "./config.mjs";
 import { rewriteCaption, reapplyTail } from "./caption.mjs";
 import { formatImage } from "./format.mjs";
 import { dataPath, CRED_FILE, QR_FILE, saveToken, removeToken } from "./paths.mjs";
-import { pushToPostiz } from "./postiz.mjs";
+import { pushToPostiz, fetchHubFacebookPages } from "./postiz.mjs";
 
 // Trang cấu hình cầu nối Postiz (Việt Anh Media Hub) — phục vụ tại GET /postiz
 const POSTIZ_CONFIG_PAGE = `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cấu hình Postiz</title><style>
@@ -1155,8 +1155,34 @@ export function startWeb(ctx = {}) {
   const G = `https://graph.facebook.com/${FBV}`;
   let _pagesCache = null, _pagesAt = 0;
   // Gộp MỌI Trang hệ thống đang giữ token: từ data/pages.json + routes + mọi biến FB_PAGE_TOKEN_* trong .env.
+  // ĐỒNG BỘ Trang từ Media Hub (Add Channel): user kết nối Trang Facebook MỘT
+  // lần ở Hub → bot tự nhận page token (tokens.json + env), đăng thẳng được.
+  // Thay thế việc dán user token ở tab Token (tab đó giờ chỉ là fallback).
+  async function syncPagesFromHub() {
+    const hubPages = await fetchHubFacebookPages(); // [] nếu chưa có key/Hub tắt
+    if (!hubPages.length) return 0;
+    const pstore = loadPages();
+    let changed = 0;
+    for (const p of hubPages) {
+      const fid = String(p.pageId);
+      const envName = pstore[fid]?.envName || envNameFor(p.name || fid, fid);
+      if (process.env[envName] !== p.token) { saveToken(envName, p.token); changed++; }
+      // Hub tự refresh token định kỳ; mỗi lần đồng bộ bot lại nhận bản mới nhất
+      // → hiển thị "Vĩnh viễn" nếu Hub không báo hạn.
+      const expiresAt = p.expiresAt ? Math.floor(p.expiresAt / 1000) : 0;
+      const cur = pstore[fid];
+      if (!cur || cur.envName !== envName || cur.name !== (p.name || cur.name) || cur.expiresAt !== expiresAt) changed++;
+      pstore[fid] = { name: p.name || cur?.name || "Trang " + fid, envName, expiresAt };
+    }
+    if (changed) { savePages(pstore); _pagesCache = null; }
+    return hubPages.length;
+  }
+  // Đồng bộ 1 lần lúc khởi động (nền) — token sẵn sàng trước khi có bài cần đăng.
+  syncPagesFromHub().then((n) => { if (n) store.pushLog(`Đồng bộ ${n} Trang Facebook từ Media Hub (Add Channel).`); }).catch(() => {});
+
   async function buildPagesList(force) {
     if (!force && _pagesCache && Date.now() - _pagesAt < 300000) return _pagesCache;
+    try { await syncPagesFromHub(); } catch {}
     const pstore = loadPages();
     // NHANH: nếu store (data/pages.json) đã phủ hết token FB_PAGE_TOKEN_* trong .env -> dựng từ store, KHÔNG gọi Graph (hiện tức thì)
     const envKeys = Object.keys(process.env).filter((k) => /^FB_PAGE_TOKEN_/.test(k) && process.env[k]);
@@ -1208,7 +1234,8 @@ export function startWeb(ctx = {}) {
   }
 
   app.get("/api/fb/pages", requireAuth, async (req, res) => {
-    try { res.json(await buildPagesList()); } catch (e) { res.status(500).json({ error: e.message }); }
+    // ?force=1: bỏ cache 5 phút — dùng khi vừa kết nối Trang mới ở Add Channel.
+    try { res.json(await buildPagesList(req.query.force === "1")); } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
   app.get("/api/token", requireAuth, async (req, res) => {

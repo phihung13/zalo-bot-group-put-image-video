@@ -35,6 +35,28 @@ export async function listIntegrations({ url, key } = {}) {
   return Array.isArray(list) ? list : list.integrations || [];
 }
 
+/**
+ * Trang Facebook đã kết nối trong Media Hub (Add Channel) KÈM page token.
+ * Bot dùng token này để đăng thẳng Facebook — user chỉ kết nối Trang MỘT lần
+ * ở Media Hub, không phải dán user token riêng cho bot nữa.
+ * Trả []: chưa có key / Hub chưa chạy / Hub bản cũ chưa có endpoint.
+ */
+export async function fetchHubFacebookPages() {
+  const apiKey = process.env.POSTIZ_API_KEY;
+  if (!apiKey) return [];
+  try {
+    const res = await fetch(`${apiUrl()}/public/v1/facebook-pages`, {
+      headers: { Authorization: apiKey },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return [];
+    const list = await res.json().catch(() => []);
+    return Array.isArray(list) ? list.filter((p) => p && p.pageId && p.token) : [];
+  } catch {
+    return [];
+  }
+}
+
 // Upload 1 file local vào Postiz, trả về media record {id, path}.
 async function uploadLocalFile(base, apiKey, filePath) {
   const buf = fs.readFileSync(filePath);
