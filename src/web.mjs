@@ -1077,7 +1077,12 @@ export function startWeb(ctx = {}) {
     try {
       const route = routeForThread(loadConfig(), d.threadId) || {};
       const r = await pushToPostiz({ caption: d.caption, imagePaths: d.savedImages || [], videoPaths: d.savedVideos || [], imageCaptions: d.imageCaptions || [], videoCaptions: d.videoCaptions || [], groupName: d.routeLabel || '', integrationId: route.postizIntegrationId || '' });
-      if (r?.ok) { store.pushLog(`Đẩy tay bài "${d.routeLabel}" sang Media Hub (${r.media} media).`); return res.json({ ok: true, media: r.media }); }
+      if (r?.ok) {
+        // Nhớ postId để Hub mở thẳng trình soạn bài (nút "Soạn & đăng ở Calendar").
+        try { store.updatePending(d.id, { pushedToHub: true, ...(r.postId ? { hubPostId: r.postId } : {}) }); } catch {}
+        store.pushLog(`Đẩy tay bài "${d.routeLabel}" sang Media Hub (${r.media} media).`);
+        return res.json({ ok: true, media: r.media, postId: r.postId || null });
+      }
       res.status(400).json({ error: r?.error || r?.skipped || 'không đẩy được' });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });

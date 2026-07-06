@@ -135,7 +135,7 @@ async function main() {
         // sang Media Hub" lần nữa (tránh nhân đôi bài chờ duyệt).
         if (process.env.POSTIZ_ENABLED === "true") {
           pushToPostiz({ caption: draft.caption, imagePaths: draft.savedImages || [], videoPaths: draft.savedVideos || [], imageCaptions: draft.imageCaptions || [], videoCaptions: draft.videoCaptions || [], groupName: route.label, integrationId: route.postizIntegrationId || '' })
-            .then((r) => { if (r?.ok) { try { store.updatePending(draft.id, { pushedToHub: true }); } catch {} store.pushLog(`Đã đẩy bản nháp "${route.label}" sang Media Hub (${r.media} media).`); } else if (r && !r.skipped) store.pushLog(`Đẩy Media Hub lỗi: ${r.error || r.status}`); })
+            .then((r) => { if (r?.ok) { try { store.updatePending(draft.id, { pushedToHub: true, ...(r.postId ? { hubPostId: r.postId } : {}) }); } catch {} store.pushLog(`Đã đẩy bản nháp "${route.label}" sang Media Hub (${r.media} media).`); } else if (r && !r.skipped) store.pushLog(`Đẩy Media Hub lỗi: ${r.error || r.status}`); })
             .catch((e) => store.pushLog(`Đẩy Media Hub lỗi: ${e.message}`));
         }
         if (autoPosted) store.addPosted({ ...finalDraft, postedAt: Date.now(), partial: needsReview });

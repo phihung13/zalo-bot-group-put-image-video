@@ -142,8 +142,14 @@ export async function pushToPostiz({
     if (!res.ok) {
       return { ok: false, status: res.status, error: text.slice(0, 300) };
     }
+    // Postiz trả [{postId, integration}] — postId để Hub mở thẳng trình soạn bài.
+    let postId = null;
+    try {
+      const arr = JSON.parse(text);
+      if (Array.isArray(arr) && arr[0]?.postId) postId = arr[0].postId;
+    } catch {}
     console.log(`[postiz] ✅ Đã đẩy bản nháp "${groupName}" (${media.length} media) sang Postiz.`);
-    return { ok: true, media: media.length };
+    return { ok: true, media: media.length, postId };
   } catch (e) {
     return { ok: false, error: e.message };
   }
