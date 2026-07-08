@@ -1,7 +1,7 @@
 // src/web.mjs — Web dashboard: đăng nhập, duyệt & đăng bài, comment, route, token, log.
 import express from "express";
 import { createProxyMiddleware } from "http-proxy-middleware";
-import { NOVNC_PORT, vncAvailable, vncStarted } from "./gbpvnc.mjs";
+import { NOVNC_PORT, vncAvailable, vncStarted, startVncStack } from "./gbpvnc.mjs";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -166,10 +166,35 @@ export function startWeb(ctx = {}) {
   // Ảnh draft (bảo vệ bằng auth)
   app.use("/output", requireAuth, express.static(dataPath("output")));
 
+  // Vé VNC một lần: Hub gọi /api/gbp/vnc-ticket (auth qua x-hub-token) để lấy
+  // ticket, rồi nhúng iframe /botvnc/vnc/vnc.html?ticket=... Lần request đầu có
+  // ticket hợp lệ -> cấp phiên sid (cookie) -> các file con + WebSocket sau đó
+  // đi qua cookie như phiên dashboard thường. Không cần header (iframe/WS
+  // không gửi được x-hub-token).
+  const vncTickets = new Map(); // ticket -> hết hạn (ms)
+  const issueVncTicket = () => {
+    const tk = crypto.randomBytes(24).toString("hex");
+    vncTickets.set(tk, Date.now() + 5 * 60 * 1000); // 5 phút để mở
+    return tk;
+  };
+
   // noVNC: nhúng trình duyệt đăng nhập Google Business (auth-gated; WebSocket gate ở 'upgrade' bên dưới)
   // app.use("/vnc") đã tự cắt tiền tố /vnc khỏi req.url -> KHÔNG pathRewrite (kẻo cắt 2 lần -> /vnc.html thành .html).
   const vncProxy = createProxyMiddleware({ target: `http://127.0.0.1:${NOVNC_PORT}`, changeOrigin: true, ws: true });
-  app.use("/vnc", requireAuth, vncProxy);
+  const vncAuth = (req, res, next) => {
+    if (authed(req)) return next();
+    // Ticket hợp lệ trên request đầu -> tạo phiên sid, đặt cookie, cho qua.
+    const tk = new URL(req.url, "http://x").searchParams.get("ticket");
+    if (tk && (vncTickets.get(tk) || 0) > Date.now()) {
+      vncTickets.delete(tk);
+      const sid = crypto.randomBytes(24).toString("hex");
+      sessions.add(sid); saveSessions();
+      res.setHeader("Set-Cookie", `sid=${sid}; Path=/; HttpOnly; SameSite=Lax`);
+      return next();
+    }
+    return res.status(401).json({ error: "Chưa đăng nhập" });
+  };
+  app.use("/vnc", vncAuth, vncProxy);
 
   // ===== Trạng thái =====
   app.get("/api/status", requireAuth, (req, res) => {
@@ -1284,6 +1309,18 @@ export function startWeb(ctx = {}) {
       res.json(r);
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
+  // Cấp vé để Hub nhúng màn hình ảo: khởi động Xvfb/x11vnc/noVNC (idempotent),
+  // trả ticket một lần. Hub dựng iframe /botvnc/vnc/vnc.html?ticket=...
+  app.post("/api/gbp/vnc-ticket", requireAuth, async (req, res) => {
+    try {
+      if (!vncAvailable()) {
+        return res.status(400).json({ error: "Máy bot thiếu noVNC (Xvfb/x11vnc/websockify)." });
+      }
+      await startVncStack();
+      res.json({ ok: true, ticket: issueVncTicket() });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   // Chẩn đoán noVNC: xem layout file thật trên VPS để sửa đúng đường dẫn iframe
   app.get("/api/gbp/vnc-debug", requireAuth, (req, res) => {
     const dirs = ["/usr/share/novnc", "/usr/share/webapps/novnc", "/usr/lib/novnc"];
