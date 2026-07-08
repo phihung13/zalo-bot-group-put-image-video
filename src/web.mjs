@@ -593,7 +593,13 @@ export function startWeb(ctx = {}) {
   });
 
   // ===== Cấu hình route =====
-  app.get("/api/routes", requireAuth, (req, res) => res.json(JSON.parse(fs.readFileSync(ROUTES_FILE, "utf8"))));
+  // Đọc routes.json AN TOÀN: volume mới (container lần đầu) chưa có file →
+  // trả cấu hình rỗng thay vì ném ENOENT (lỗi từng làm "+ Nghe nhóm" chết).
+  const readRoutesRaw = () => {
+    try { return JSON.parse(fs.readFileSync(ROUTES_FILE, "utf8")); }
+    catch { return { defaults: {}, routes: [] }; }
+  };
+  app.get("/api/routes", requireAuth, (req, res) => res.json(readRoutesRaw()));
   app.post("/api/routes", requireAuth, (req, res) => {
     try {
       const data = req.body;
@@ -955,7 +961,7 @@ export function startWeb(ctx = {}) {
     try {
       const { threadId, name, enabled, integrationId } = req.body || {};
       if (!threadId) return res.status(400).json({ error: 'thiếu threadId' });
-      const data = JSON.parse(fs.readFileSync(ROUTES_FILE, 'utf8'));
+      const data = readRoutesRaw();
       data.routes = Array.isArray(data.routes) ? data.routes : [];
       const found = data.routes.find((r) => String(r.threadId) === String(threadId));
       if (found) {
