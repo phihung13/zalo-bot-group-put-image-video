@@ -1,5 +1,6 @@
 // src/web.mjs — Web dashboard: đăng nhập, duyệt & đăng bài, comment, route, token, log.
 import express from "express";
+import { ThreadType } from "zca-js";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { NOVNC_PORT, vncAvailable, vncStarted, startVncStack } from "./gbpvnc.mjs";
 import crypto from "node:crypto";
@@ -958,6 +959,25 @@ export function startWeb(ctx = {}) {
       return res.json({ ok: true, reconnecting: true });
     }
     res.status(501).json({ error: 'Service này chưa hỗ trợ kết nối lại trong tiến trình' });
+  });
+
+  // Media Hub GỬI tin nhắn văn bản vào 1 nhóm (báo cáo tuần trang Phát hiện):
+  //   POST /api/postiz/send { threadId, text } — auth qua x-hub-token như các
+  //   route postiz khác. Text cắt 9000 ký tự (trần an toàn của Zalo).
+  app.post('/api/postiz/send', async (req, res) => {
+    const zalo = ctx.getZalo && ctx.getZalo();
+    if (!zalo) return res.status(503).json({ error: 'Zalo chưa kết nối — không gửi được' });
+    const threadId = String(req.body?.threadId || '').trim();
+    const text = String(req.body?.text || '').trim();
+    if (!threadId || !text) return res.status(400).json({ error: 'Thiếu threadId hoặc text' });
+    try {
+      await zalo.sendMessage({ msg: text.slice(0, 9000) }, threadId, ThreadType.Group);
+      store.pushLog(`Media Hub gửi báo cáo vào nhóm ${threadId} (${text.length} ký tự).`);
+      res.json({ ok: true });
+    } catch (e) {
+      store.pushLog(`Gửi báo cáo vào nhóm ${threadId} LỖI: ${e.message}`);
+      res.status(500).json({ error: e.message });
+    }
   });
 
   // Danh sách nhóm Zalo (cache 5 phút, giống /api/zalo/groups).
