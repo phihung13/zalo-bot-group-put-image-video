@@ -72,7 +72,12 @@ function channelsFor(d, route = {}) {
   // GBP chỉ là 1 kênh nếu route có business VÀ bài có ẢNH (Google Business không nhận video).
   const hasImages = Array.isArray(d.savedImages) && d.savedImages.length > 0;
   const gbp = gbpIdsOf(d, route).length > 0 && hasImages;
-  return ["facebook", ...(gbp ? ["gbp"] : [])];
+  // Facebook chỉ là kênh của thẻ khi thẻ/route thật sự trỏ tới một fanpage
+  // (đăng thẳng từ bot — luồng cũ), hoặc thẻ ĐÃ đăng FB rồi (giữ lịch sử).
+  // Route thuần Media Hub: không có kênh FB ở bot — duyệt/đăng làm ở Calendar.
+  const hasFbTarget = !!String(d.fanpageId || route.fanpageId || "").trim();
+  const fbPosted = ((d.approvals || {}).facebook || {}).status === "posted";
+  return [...(hasFbTarget || fbPosted ? ["facebook"] : []), ...(gbp ? ["gbp"] : [])];
 }
 
 function approvalsOf(d, route = {}) {
@@ -278,7 +283,20 @@ export function startWeb(ctx = {}) {
       };
     });
 
-    res.json(posts.sort((a, b) => (b.sortAt || b.postedAt || b.createdAt || 0) - (a.sortAt || a.postedAt || a.createdAt || 0)).slice(0, 160));
+    // Tự dọn (quyết định user 13/07/2026): bài ĐÃ vào Media Hub và không còn
+    // kênh nào chờ ở bot (không FB/GBP pending, cũng chưa đăng FB/GBP) thì XÓA
+    // khỏi lịch sử — duyệt/sửa/đăng làm hết ở Calendar rồi, giữ thẻ chỉ gây rối.
+    // Xóa cả thư mục ảnh local (media đã upload lên kho của Hub khi đẩy nháp).
+    const keep = [];
+    for (const p of posts) {
+      const purgeable = p.pushedToHub && !p.pendingChannels.length && !p.postedChannels.length;
+      if (!purgeable) { keep.push(p); continue; }
+      try { if (p.dir) fs.rmSync(p.dir, { recursive: true, force: true }); } catch {}
+      try { store.removePending(p.id); } catch {}
+      try { store.removePosted(p.id); } catch {}
+    }
+
+    res.json(keep.sort((a, b) => (b.sortAt || b.postedAt || b.createdAt || 0) - (a.sortAt || a.postedAt || a.createdAt || 0)).slice(0, 160));
   });
 
   app.post("/api/pending/:id/save", requireAuth, async (req, res) => {
