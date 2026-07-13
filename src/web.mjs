@@ -1179,7 +1179,10 @@ export function startWeb(ctx = {}) {
     if (process.env.POSTIZ_ENABLED !== 'true') return res.status(400).json({ error: 'Cầu nối đang tắt — bật ở bước 3 trước' });
     try {
       const route = routeForThread(loadConfig(), d.threadId) || {};
-      const r = await pushToPostiz({ caption: d.caption, imagePaths: d.savedImages || [], videoPaths: d.savedVideos || [], imageCaptions: d.imageCaptions || [], videoCaptions: d.videoCaptions || [], groupName: d.routeLabel || '', integrationId: route.postizIntegrationId || '' });
+      // Bỏ chân bài của bot khỏi bản đẩy Hub — Media Hub tự chèn chân bài của kênh
+      // (cài trong Lịch) dưới caption, trên hashtag. Tránh trùng 2 chân bài.
+      const hubCaption = reapplyFooter(d.caption, d.captionFooter || "", "", d.hashtags || "");
+      const r = await pushToPostiz({ caption: hubCaption, imagePaths: d.savedImages || [], videoPaths: d.savedVideos || [], imageCaptions: d.imageCaptions || [], videoCaptions: d.videoCaptions || [], groupName: d.routeLabel || '', integrationId: route.postizIntegrationId || '' });
       if (r?.ok) {
         // Nhớ postId để Hub mở thẳng trình soạn bài (nút "Soạn & đăng ở Calendar").
         try { store.updatePending(d.id, { pushedToHub: true, ...(r.postId ? { hubPostId: r.postId } : {}) }); } catch {}

@@ -77,6 +77,9 @@ async function main() {
         if (!res.savedImages.length && !res.savedVideos.length) { live.done(batch.threadId, null); return; }
         const gbpIds = route.gbpLocationIds || (route.gbpLocationId ? [route.gbpLocationId] : []);
         const gbpForThisPost = gbpIds.length > 0 && res.savedImages.length > 0; // GBP cần ẢNH (không nhận video)
+        // Facebook chỉ còn đi qua kênh Media Hub (bản nháp chờ duyệt trên Lịch).
+        // Route nào CÒN fanpageId trong file cũ thì giữ luồng duyệt FB như trước.
+        const hasFb = !!(route.fanpageId && String(route.fanpageId).trim());
         const draft = {
           id: path.basename(res.dir), threadId: batch.threadId, routeLabel: route.label,
           fanpageId: route.fanpageId, fanpageTokenEnv: route.fanpageTokenEnv,
@@ -92,7 +95,7 @@ async function main() {
           caption: assembleCaption(res.caption, route.captionFooter, res.hashtags),
           droppedCount: res.droppedCount, createdAt: Date.now(), reason,
           approvals: {
-            facebook: { status: "pending" },
+            ...(hasFb ? { facebook: { status: "pending" } } : {}),
             ...(gbpForThisPost ? { gbp: { status: "pending" } } : {}),
           },
         };
@@ -127,16 +130,29 @@ async function main() {
           }
         }
 
-        const channels = ["facebook", ...(gbpForThisPost ? ["gbp"] : [])];
+        const channels = [...(hasFb ? ["facebook"] : []), ...(gbpForThisPost ? ["gbp"] : [])];
         const needsReview = channels.some((ch) => approvals[ch]?.status !== "posted");
         const finalDraft = { ...draft, approvals, published, links };
         // Cầu nối Media Hub: đẩy bản nháp sang Social Hub (nếu bật). Chạy nền.
         // Đánh dấu pushedToHub khi thành công → panel Zalo KHÔNG hiện nút "Đẩy
         // sang Media Hub" lần nữa (tránh nhân đôi bài chờ duyệt).
         if (process.env.POSTIZ_ENABLED === "true") {
-          pushToPostiz({ caption: draft.caption, imagePaths: draft.savedImages || [], videoPaths: draft.savedVideos || [], imageCaptions: draft.imageCaptions || [], videoCaptions: draft.videoCaptions || [], groupName: route.label, integrationId: route.postizIntegrationId || '' })
-            .then((r) => { if (r?.ok) { try { store.updatePending(draft.id, { pushedToHub: true, ...(r.postId ? { hubPostId: r.postId } : {}) }); } catch {} store.pushLog(`Đã đẩy bản nháp "${route.label}" sang Media Hub (${r.media} media).`); } else if (r && !r.skipped) store.pushLog(`Đẩy Media Hub lỗi: ${r.error || r.status}`); })
-            .catch((e) => store.pushLog(`Đẩy Media Hub lỗi: ${e.message}`));
+          // Bản đẩy Hub KHÔNG kèm chân bài của bot — Media Hub tự chèn chân bài
+          // của kênh (cài trong Lịch) dưới caption, trên hashtag. Tránh trùng 2 chân bài.
+          pushToPostiz({ caption: assembleCaption(res.caption, "", res.hashtags), imagePaths: draft.savedImages || [], videoPaths: draft.savedVideos || [], imageCaptions: draft.imageCaptions || [], videoCaptions: draft.videoCaptions || [], groupName: route.label, integrationId: route.postizIntegrationId || '' })
+            .then((r) => {
+              if (r?.ok) { try { store.updatePending(draft.id, { pushedToHub: true, ...(r.postId ? { hubPostId: r.postId } : {}) }); } catch {} store.pushLog(`Đã đẩy bản nháp "${route.label}" sang Media Hub (${r.media} media) — chờ duyệt trên Lịch.`); }
+              else if (r && !r.skipped) {
+                store.pushLog(`Đẩy Media Hub lỗi: ${r.error || r.status}`);
+                // Route thuần Media Hub mà đẩy lỗi → giữ thẻ trong hàng chờ của bot
+                // làm lưới an toàn (ảnh không bị mất, bấm "Đẩy sang Media Hub" lại được).
+                if (!needsReview && !autoPosted) { try { store.addPending({ ...finalDraft, hubError: String(r.error || r.status) }); live.done(batch.threadId, draft.id); } catch {} }
+              }
+            })
+            .catch((e) => {
+              store.pushLog(`Đẩy Media Hub lỗi: ${e.message}`);
+              if (!needsReview && !autoPosted) { try { store.addPending({ ...finalDraft, hubError: e.message }); live.done(batch.threadId, draft.id); } catch {} }
+            });
         }
         if (autoPosted) store.addPosted({ ...finalDraft, postedAt: Date.now(), partial: needsReview });
         if (needsReview) {
@@ -146,7 +162,14 @@ async function main() {
           console.log(`  [pipeline] -> HÀNG CHỜ DUYỆT (còn kênh cần duyệt)`);
         } else {
           live.done(batch.threadId, null);
-          if (!autoPosted) store.pushLog(`Bài đã xử lý nhưng không có kênh tự đăng: ${route.label}`);
+          if (!autoPosted) {
+            if (process.env.POSTIZ_ENABLED === "true" && (route.postizIntegrationId || process.env.POSTIZ_INTEGRATION_ID)) {
+              store.pushLog(`Đã xử lý "${route.label}" — bản nháp chuyển sang Media Hub, duyệt trên Lịch.`);
+              console.log(`  [pipeline] -> BẢN NHÁP MEDIA HUB (duyệt trên Lịch)`);
+            } else {
+              store.pushLog(`Bài đã xử lý nhưng không có kênh tự đăng: ${route.label}`);
+            }
+          }
         }
       } catch (e) { console.error("💥 xử lý batch lỗi:", e?.message || e); store.pushLog("Xử lý batch lỗi: " + (e?.message || e)); }
     },
