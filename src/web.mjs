@@ -961,21 +961,23 @@ export function startWeb(ctx = {}) {
     res.status(501).json({ error: 'Service này chưa hỗ trợ kết nối lại trong tiến trình' });
   });
 
-  // Media Hub GỬI tin nhắn văn bản vào 1 nhóm (báo cáo tuần trang Phát hiện):
-  //   POST /api/postiz/send { threadId, text } — auth qua x-hub-token như các
-  //   route postiz khác. Text cắt 9000 ký tự (trần an toàn của Zalo).
+  // Media Hub GỬI tin nhắn văn bản (báo cáo/bản tin trang Phát hiện):
+  //   POST /api/postiz/send { threadId, text, threadType? } — threadType:
+  //   'user' = nhắn thẳng 1 người (bạn bè), mặc định 'group' (tương thích cũ).
+  //   Auth qua x-hub-token như các route postiz khác. Text cắt 9000 ký tự.
   app.post('/api/postiz/send', async (req, res) => {
     const zalo = ctx.getZalo && ctx.getZalo();
     if (!zalo) return res.status(503).json({ error: 'Zalo chưa kết nối — không gửi được' });
     const threadId = String(req.body?.threadId || '').trim();
     const text = String(req.body?.text || '').trim();
+    const isUser = String(req.body?.threadType || 'group') === 'user';
     if (!threadId || !text) return res.status(400).json({ error: 'Thiếu threadId hoặc text' });
     try {
-      await zalo.sendMessage({ msg: text.slice(0, 9000) }, threadId, ThreadType.Group);
-      store.pushLog(`Media Hub gửi báo cáo vào nhóm ${threadId} (${text.length} ký tự).`);
+      await zalo.sendMessage({ msg: text.slice(0, 9000) }, threadId, isUser ? ThreadType.User : ThreadType.Group);
+      store.pushLog(`Media Hub gửi báo cáo tới ${isUser ? 'người' : 'nhóm'} ${threadId} (${text.length} ký tự).`);
       res.json({ ok: true });
     } catch (e) {
-      store.pushLog(`Gửi báo cáo vào nhóm ${threadId} LỖI: ${e.message}`);
+      store.pushLog(`Gửi báo cáo tới ${threadId} LỖI: ${e.message}`);
       res.status(500).json({ error: e.message });
     }
   });
@@ -996,6 +998,56 @@ export function startWeb(ctx = {}) {
       if (!_groupsPromise) _groupsPromise = refreshGroups(zalo).finally(() => { _groupsPromise = null; });
       res.json(filterGroups(await _groupsPromise));
     } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Danh bạ BẠN BÈ của tài khoản bot (cache 5 phút) — Media Hub chọn NGƯỜI
+  // nhận bản tin (bên cạnh nhóm). Trả { friends: [{threadId, name, avatar}] }.
+  let _friendsCache = null;
+  let _friendsAt = 0;
+  app.get('/api/postiz/contacts', async (req, res) => {
+    const zalo = ctx.getZalo && ctx.getZalo();
+    const force = req.query.force === '1' || req.query.force === 'true';
+    if (_friendsCache && !force && Date.now() - _friendsAt < 300000) {
+      return res.json(_friendsCache);
+    }
+    if (!zalo) return res.status(503).json({ error: 'Zalo chưa kết nối — không lấy được danh bạ' });
+    try {
+      const all = await zalo.getAllFriends();
+      const list = (Array.isArray(all) ? all : [])
+        .map((f) => ({
+          threadId: String(f.userId || f.uid || ''),
+          name: String(f.displayName || f.zaloName || f.username || 'Không tên').slice(0, 80),
+          avatar: f.avatar || '',
+        }))
+        .filter((f) => f.threadId);
+      _friendsCache = { friends: list };
+      _friendsAt = Date.now();
+      store.pushLog(`Media Hub tải danh bạ: ${list.length} bạn bè.`);
+      res.json(_friendsCache);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Tra SĐT → người nhận (gửi cho người CHƯA kết bạn được — nhưng nhắn người
+  // lạ dễ bị Zalo hạn chế, Media Hub đã cảnh báo ở UI).
+  app.get('/api/postiz/find-user', async (req, res) => {
+    const zalo = ctx.getZalo && ctx.getZalo();
+    if (!zalo) return res.status(503).json({ error: 'Zalo chưa kết nối' });
+    const phone = String(req.query.phone || '').replace(/\D/g, '');
+    if (!phone) return res.status(400).json({ error: 'Thiếu phone' });
+    try {
+      const u = await zalo.findUser(phone);
+      const uid = u && (u.uid || u.userId);
+      if (!uid) return res.status(404).json({ error: 'Không tìm thấy người dùng với SĐT này' });
+      res.json({
+        threadId: String(uid),
+        name: String(u.display_name || u.zalo_name || u.displayName || phone).slice(0, 80),
+        avatar: u.avatar || '',
+      });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   // Sửa route 1 nhóm từ Media Hub (kiểu PATCH — chỉ đổi field có gửi lên):
