@@ -12,3 +12,6 @@ output/
 tmp/
 media/
 *.log
+
+# Cache công cụ design Impeccable (Claude Code) — artifact máy, KHÔNG commit
+.impeccable/

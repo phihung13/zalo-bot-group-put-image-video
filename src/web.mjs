@@ -452,6 +452,19 @@ export function startWeb(ctx = {}) {
     res.json({ ok: true });
   });
 
+  // Xóa TAY 1 thẻ khỏi lịch sử "Bài viết" (nút 🗑 trên trang Zalo của Hub) — dù
+  // đang chờ, đã đăng, hay đã vào Media Hub (bài "Đã vào Media Hub" đáng lẽ tự
+  // rời, nhưng user cần xóa chủ động). Gỡ khỏi cả 2 store + xóa thư mục ảnh local.
+  app.post("/api/posts/:id/delete", requireAuth, (req, res) => {
+    const id = req.params.id;
+    const d = store.getPending(id) || store.getPosted(id) || null;
+    try { if (d && d.dir) fs.rmSync(d.dir, { recursive: true, force: true }); } catch {}
+    try { store.removePending(id); } catch {}
+    try { store.removePosted(id); } catch {}
+    store.pushLog("Đã xóa bài khỏi lịch sử: " + ((d && (d.routeLabel || d.id)) || id));
+    res.json({ ok: true });
+  });
+
   // ===== Lịch sử =====
   app.get("/api/posted", requireAuth, (req, res) => {
     const cfg = loadConfig();
