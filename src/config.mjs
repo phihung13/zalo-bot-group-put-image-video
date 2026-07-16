@@ -25,6 +25,11 @@ export function loadConfig(file = process.env.ROUTES_FILE || DEFAULT_FILE) {
     // GBP: hỗ trợ NHIỀU business/1 nhóm. gbpLocationIds (mảng) là nguồn chính; gbpLocationId (cũ) = phần tử đầu.
     const gbpIds = Array.isArray(r.gbpLocationIds) ? r.gbpLocationIds.map(String).filter(Boolean)
       : (r.gbpLocationId ? [String(r.gbpLocationId)] : []);
+    // Kênh Media Hub: hỗ trợ NHIỀU kênh/1 nhóm (mỗi kênh thành 1 thẻ nháp riêng).
+    // postizIntegrationIds (mảng) là nguồn chính; postizIntegrationId (cũ) = phần tử đầu.
+    const postizIds = Array.isArray(r.postizIntegrationIds)
+      ? r.postizIntegrationIds.map((x) => String(x || "").trim()).filter(Boolean)
+      : (r.postizIntegrationId ? [String(r.postizIntegrationId).trim()].filter(Boolean) : []);
     byThread.set(String(r.threadId), {
       threadId: String(r.threadId),
       label: r.label || r.threadId,
@@ -50,7 +55,8 @@ export function loadConfig(file = process.env.ROUTES_FILE || DEFAULT_FILE) {
       gbpLocationIds: gbpIds,            // NHIỀU GBP business; rỗng = không đăng GBP
       gbpLocationId: gbpIds[0] || "",    // tương thích ngược (1 ID)
       // Kênh Media Hub (Postiz) RIÊNG của nhóm này; rỗng = dùng kênh mặc định (POSTIZ_INTEGRATION_ID)
-      postizIntegrationId: (r.postizIntegrationId || "").toString(),
+      postizIntegrationIds: postizIds,        // NHIỀU kênh → mỗi kênh 1 thẻ nháp riêng
+      postizIntegrationId: postizIds[0] || "", // tương thích ngược (1 kênh)
     });
   }
   return { defaults, byThread, file };

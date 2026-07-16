@@ -139,7 +139,7 @@ async function main() {
         if (process.env.POSTIZ_ENABLED === "true") {
           // Bản đẩy Hub KHÔNG kèm chân bài của bot — Media Hub tự chèn chân bài
           // của kênh (cài trong Lịch) dưới caption, trên hashtag. Tránh trùng 2 chân bài.
-          pushToPostiz({ caption: assembleCaption(res.caption, "", res.hashtags), imagePaths: draft.savedImages || [], videoPaths: draft.savedVideos || [], imageCaptions: draft.imageCaptions || [], videoCaptions: draft.videoCaptions || [], groupName: route.label, integrationId: route.postizIntegrationId || '' })
+          pushToPostiz({ caption: assembleCaption(res.caption, "", res.hashtags), imagePaths: draft.savedImages || [], videoPaths: draft.savedVideos || [], imageCaptions: draft.imageCaptions || [], videoCaptions: draft.videoCaptions || [], groupName: route.label, integrationIds: route.postizIntegrationIds || [], integrationId: route.postizIntegrationId || '' })
             .then((r) => {
               if (r?.ok) { try { store.updatePending(draft.id, { pushedToHub: true, ...(r.postId ? { hubPostId: r.postId } : {}) }); } catch {} store.pushLog(`Đã đẩy bản nháp "${route.label}" sang Media Hub (${r.media} media) — chờ duyệt trên Lịch.`); }
               else if (r && !r.skipped) {

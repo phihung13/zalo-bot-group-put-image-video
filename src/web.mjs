@@ -738,8 +738,9 @@ export function startWeb(ctx = {}) {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
   // Xem TẤT CẢ nhóm (kể cả nhóm riêng) — KHÓA bằng mật khẩu dashboard. LẤY MỚI (thấy nhóm vừa tạo).
+  // requireAuth (JWT Hub) đã đủ bảo vệ — bỏ lớp mật khẩu dashboard thừa để
+  // "Xem mã tất cả nhóm" bấm là chạy, không phải nhập mật khẩu nữa.
   app.post("/api/zalo/groups/reveal", requireAuth, async (req, res) => {
-    if (String(req.body?.pass || "") !== PASS) return res.status(403).json({ error: "Sai mật khẩu" });
     const zalo = ctx.getZalo && ctx.getZalo();
     if (!zalo) return res.status(503).json({ error: "Zalo chưa kết nối" });
     try {
@@ -1213,7 +1214,7 @@ export function startWeb(ctx = {}) {
       // Bỏ chân bài của bot khỏi bản đẩy Hub — Media Hub tự chèn chân bài của kênh
       // (cài trong Lịch) dưới caption, trên hashtag. Tránh trùng 2 chân bài.
       const hubCaption = reapplyFooter(d.caption, d.captionFooter || "", "", d.hashtags || "");
-      const r = await pushToPostiz({ caption: hubCaption, imagePaths: d.savedImages || [], videoPaths: d.savedVideos || [], imageCaptions: d.imageCaptions || [], videoCaptions: d.videoCaptions || [], groupName: d.routeLabel || '', integrationId: route.postizIntegrationId || '' });
+      const r = await pushToPostiz({ caption: hubCaption, imagePaths: d.savedImages || [], videoPaths: d.savedVideos || [], imageCaptions: d.imageCaptions || [], videoCaptions: d.videoCaptions || [], groupName: d.routeLabel || '', integrationIds: route.postizIntegrationIds || [], integrationId: route.postizIntegrationId || '' });
       if (r?.ok) {
         // Nhớ postId để Hub mở thẳng trình soạn bài (nút "Soạn & đăng ở Calendar").
         try { store.updatePending(d.id, { pushedToHub: true, ...(r.postId ? { hubPostId: r.postId } : {}) }); } catch {}

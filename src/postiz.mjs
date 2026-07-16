@@ -78,9 +78,12 @@ async function uploadLocalFile(base, apiKey, filePath) {
 //   videoPaths    : mảng đường dẫn FILE VIDEO local (từ draft.savedVideos)
 //   imageCaptions : caption riêng TỪNG ảnh (cùng thứ tự imagePaths) → gắn vào alt
 //   videoCaptions : caption riêng từng video (cùng thứ tự videoPaths)
-//   groupName     : tên nhóm/route (để log)
-//   integrationId : kênh Media Hub RIÊNG của nhóm (route.postizIntegrationId);
-//                   bỏ trống = dùng kênh mặc định POSTIZ_INTEGRATION_ID
+//   groupName      : tên nhóm/route (để log)
+//   integrationIds : NHIỀU kênh Media Hub của nhóm (route.postizIntegrationIds)
+//                    → MỖI kênh tạo MỘT thẻ nháp RIÊNG trên Lịch (không cross-post
+//                    chung 1 thẻ). Upload media 1 lần, dùng lại cho mọi thẻ.
+//   integrationId  : (cũ) 1 kênh — vẫn nhận để tương thích ngược.
+//                    Tất cả bỏ trống = dùng kênh mặc định POSTIZ_INTEGRATION_ID
 export async function pushToPostiz({
   caption = '',
   imagePaths = [],
@@ -89,18 +92,26 @@ export async function pushToPostiz({
   videoCaptions = [],
   groupName = '',
   integrationId = '',
+  integrationIds = [],
 }) {
   if (process.env.POSTIZ_ENABLED !== 'true') return { skipped: 'disabled' };
 
   const apiKey = process.env.POSTIZ_API_KEY;
-  const targetIntegration = integrationId || process.env.POSTIZ_INTEGRATION_ID;
-  if (!apiKey || !targetIntegration) {
+  // Danh sách kênh đích: mảng mới → field cũ 1 kênh → kênh mặc định env.
+  let ids = (Array.isArray(integrationIds) ? integrationIds : [])
+    .map((x) => String(x || '').trim())
+    .filter(Boolean);
+  if (!ids.length && integrationId) ids = [String(integrationId).trim()].filter(Boolean);
+  if (!ids.length && process.env.POSTIZ_INTEGRATION_ID) ids = [process.env.POSTIZ_INTEGRATION_ID];
+  // Bỏ trùng (lỡ chọn 2 lần cùng kênh) — mỗi kênh 1 thẻ, không nhân đôi.
+  ids = [...new Set(ids)];
+  if (!apiKey || !ids.length) {
     return { skipped: 'missing-config' };
   }
   const base = apiUrl();
 
-  // Upload media local -> lấy {id, path}; kèm alt = caption riêng từng ảnh/video
-  // (Media Hub hiển thị/sửa alt khi bấm vào ảnh trong composer, và đăng kèm bài).
+  // Upload media local MỘT LẦN -> lấy {id, path}; dùng lại cho MỌI kênh. Kèm alt
+  // = caption riêng từng ảnh/video (Media Hub hiển thị/sửa alt, đăng kèm bài).
   const media = [];
   const files = [
     ...(imagePaths || []).map((f, i) => ({ f, alt: (imageCaptions || [])[i] || '' })),
@@ -115,42 +126,59 @@ export async function pushToPostiz({
     }
   }
 
-  const body = {
-    type: 'draft', // vào hàng chờ duyệt trong Media Hub
-    // +2h: bài "chờ duyệt" nằm ở tương lai gần → hiện trên calendar hôm nay
-    // và không rơi khỏi tab Draft (tab này chỉ hiện bài có ngày >= hiện tại).
-    date: new Date(Date.now() + 2 * 3600 * 1000).toISOString(),
-    // Tag "Zalo" để Media Hub nhận diện bài chờ duyệt từ nhóm Zalo
-    // (trang Zalo trong Media Hub tự tạo tag này khi bật cầu nối).
-    tags: [{ value: 'Zalo', label: 'Zalo' }],
-    shortLink: false,
-    posts: [
-      {
-        integration: { id: targetIntegration },
-        value: [{ content: caption || '', image: media }],
-      },
-    ],
-  };
-
-  try {
-    const res = await fetch(`${base}/public/v1/posts`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', Authorization: apiKey },
-      body: JSON.stringify(body),
-    });
-    const text = await res.text();
-    if (!res.ok) {
-      return { ok: false, status: res.status, error: text.slice(0, 300) };
-    }
-    // Postiz trả [{postId, integration}] — postId để Hub mở thẳng trình soạn bài.
-    let postId = null;
+  // MỖI kênh = MỘT lời gọi /public/v1/posts riêng → một thẻ nháp độc lập trên
+  // Lịch (gộp nhiều kênh vào 1 posts[] sẽ thành 1 thẻ cross-post, KHÔNG phải cái
+  // ta muốn). Lệch giờ 1 phút/kênh để các thẻ không đè cùng một ô.
+  const postIds = [];
+  const errors = [];
+  for (let i = 0; i < ids.length; i++) {
+    const body = {
+      type: 'draft', // vào hàng chờ duyệt trong Media Hub
+      date: new Date(Date.now() + 2 * 3600 * 1000 + i * 60 * 1000).toISOString(),
+      // Tag "Zalo" để Media Hub nhận diện bài chờ duyệt từ nhóm Zalo.
+      tags: [{ value: 'Zalo', label: 'Zalo' }],
+      shortLink: false,
+      posts: [
+        {
+          integration: { id: ids[i] },
+          value: [{ content: caption || '', image: media }],
+        },
+      ],
+    };
     try {
-      const arr = JSON.parse(text);
-      if (Array.isArray(arr) && arr[0]?.postId) postId = arr[0].postId;
-    } catch {}
-    console.log(`[postiz] ✅ Đã đẩy bản nháp "${groupName}" (${media.length} media) sang Postiz.`);
-    return { ok: true, media: media.length, postId };
-  } catch (e) {
-    return { ok: false, error: e.message };
+      const res = await fetch(`${base}/public/v1/posts`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', Authorization: apiKey },
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        errors.push(`${res.status}: ${text.slice(0, 200)}`);
+        continue;
+      }
+      try {
+        const arr = JSON.parse(text);
+        if (Array.isArray(arr) && arr[0]?.postId) postIds.push(arr[0].postId);
+      } catch {}
+    } catch (e) {
+      errors.push(e.message);
+    }
   }
+
+  if (!postIds.length && errors.length) {
+    // Không thẻ nào tạo được → coi như lỗi (giữ thẻ ở hàng chờ bot làm lưới an toàn).
+    return { ok: false, error: errors[0], count: 0 };
+  }
+  console.log(
+    `[postiz] ✅ Đã đẩy "${groupName}" thành ${postIds.length}/${ids.length} thẻ nháp (${media.length} media) sang Media Hub.`
+  );
+  // postId (số ít) = thẻ đầu, giữ cho code cũ; postIds = mọi thẻ; count = số kênh OK.
+  return {
+    ok: true,
+    media: media.length,
+    postId: postIds[0] || null,
+    postIds,
+    count: postIds.length,
+    ...(errors.length ? { partialError: errors[0] } : {}),
+  };
 }
