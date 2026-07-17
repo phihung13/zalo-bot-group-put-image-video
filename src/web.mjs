@@ -996,7 +996,58 @@ export function startWeb(ctx = {}) {
   // Media Hub GỬI tin nhắn văn bản (báo cáo/bản tin trang Phát hiện):
   //   POST /api/postiz/send { threadId, text, threadType? } — threadType:
   //   'user' = nhắn thẳng 1 người (bạn bè), mặc định 'group' (tương thích cũ).
-  //   Auth qua x-hub-token như các route postiz khác. Text cắt 9000 ký tự.
+  //   Auth qua x-hub-token như các route postiz khác.
+  //
+  // Zalo GIỚI HẠN độ dài mỗi tin (server trả "Nội dung quá dài" nếu vượt) →
+  // CHIA bản tin thành nhiều phần ~2000 ký tự, cắt theo ranh giới đoạn/dòng cho
+  // đẹp, gửi lần lượt và đánh số (1/N). Và "Tham số không hợp lệ" thường do SAI
+  // loại thread (đặt group nhưng thực ra user, hoặc ngược lại) → tự thử loại kia.
+  const ZALO_MSG_MAX = 2000;
+  const splitForZalo = (text, max = ZALO_MSG_MAX) => {
+    const parts = [];
+    let buf = '';
+    const flush = () => { if (buf) { parts.push(buf); buf = ''; } };
+    const addChunk = (piece, sep) => {
+      if (!piece) return;
+      if ((buf ? buf.length + sep.length : 0) + piece.length > max) {
+        flush();
+        // phần lẻ vẫn dài hơn max → cắt cứng
+        while (piece.length > max) { parts.push(piece.slice(0, max)); piece = piece.slice(max); }
+        buf = piece;
+      } else {
+        buf = buf ? buf + sep + piece : piece;
+      }
+    };
+    for (const para of String(text).split(/\n\n+/)) {
+      if (para.length > max) {
+        for (const line of para.split('\n')) addChunk(line, '\n');
+      } else {
+        addChunk(para, '\n\n');
+      }
+    }
+    flush();
+    return parts.length ? parts : [String(text).slice(0, max)];
+  };
+  const sendZaloText = async (zalo, threadId, text, isUser) => {
+    let type = isUser ? ThreadType.User : ThreadType.Group;
+    const parts = splitForZalo(text);
+    for (let i = 0; i < parts.length; i++) {
+      const msg = parts.length > 1 ? `(${i + 1}/${parts.length})\n${parts[i]}` : parts[i];
+      try {
+        await zalo.sendMessage({ msg }, threadId, type);
+      } catch (e) {
+        // Sai loại thread → đổi loại, thử lại, và NHỚ loại đúng cho các phần sau.
+        if (/hợp lệ|invalid|param/i.test(String(e?.message || ''))) {
+          type = type === ThreadType.User ? ThreadType.Group : ThreadType.User;
+          await zalo.sendMessage({ msg }, threadId, type);
+        } else {
+          throw e;
+        }
+      }
+      if (i < parts.length - 1) await new Promise((r) => setTimeout(r, 500));
+    }
+    return parts.length;
+  };
   app.post('/api/postiz/send', async (req, res) => {
     const zalo = ctx.getZalo && ctx.getZalo();
     if (!zalo) return res.status(503).json({ error: 'Zalo chưa kết nối — không gửi được' });
@@ -1005,9 +1056,9 @@ export function startWeb(ctx = {}) {
     const isUser = String(req.body?.threadType || 'group') === 'user';
     if (!threadId || !text) return res.status(400).json({ error: 'Thiếu threadId hoặc text' });
     try {
-      await zalo.sendMessage({ msg: text.slice(0, 9000) }, threadId, isUser ? ThreadType.User : ThreadType.Group);
-      store.pushLog(`Media Hub gửi báo cáo tới ${isUser ? 'người' : 'nhóm'} ${threadId} (${text.length} ký tự).`);
-      res.json({ ok: true });
+      const n = await sendZaloText(zalo, threadId, text, isUser);
+      store.pushLog(`Media Hub gửi báo cáo tới ${isUser ? 'người' : 'nhóm'} ${threadId} (${text.length} ký tự, ${n} phần).`);
+      res.json({ ok: true, parts: n });
     } catch (e) {
       store.pushLog(`Gửi báo cáo tới ${threadId} LỖI: ${e.message}`);
       res.status(500).json({ error: e.message });
